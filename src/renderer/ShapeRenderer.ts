@@ -2486,6 +2486,12 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
         !hasBulletParagraph(textBody) &&
         (textWrap === 'none' ||
           (textWrap === undefined && isShortImplicitSingleLineLabel(textBody)));
+      // OOXML defaults CT_TextBodyProperties/@wrap to "square", so a shape that omits the
+      // attribute still wraps; only an explicit wrap="none" forbids wrapping. Squeezing such a
+      // label onto one line is therefore justified only when a single unwrapped line does not
+      // even fit the box height, because wrapping would then fit even less. That test happens
+      // once the unwrapped metrics are measured below.
+      const usesImplicitWrapFallbackFit = usesImplicitSingleLineFit && textWrap === undefined;
       const usesNoAutofitSingleLineTitleFit =
         hasNoAutofit &&
         horzOverflow !== 'clip' &&
@@ -2854,7 +2860,8 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
               canUseUnwrappedWidthScale &&
               (!usesNoAutofitSingleLineTitleFit ||
                 widthScale >= NO_AUTOFIT_TITLE_METRIC_SCALE_FLOOR) &&
-              (!usesNearFitSingleLineWrap || widthScale >= NEAR_FIT_SINGLE_LINE_WRAP_SCALE_FLOOR)
+              (!usesNearFitSingleLineWrap || widthScale >= NEAR_FIT_SINGLE_LINE_WRAP_SCALE_FLOOR) &&
+              (!usesImplicitWrapFallbackFit || contentH > containerH)
             ) {
               scale = Math.min(scale, widthScale);
             }

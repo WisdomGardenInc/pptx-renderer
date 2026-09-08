@@ -24,6 +24,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Derive table height from the larger of the graphic frame extent and the row-height sum. `a:tr@h`
   is a minimum row height that PowerPoint grows to fit content, so deriving height from the grid
   alone crushed real-world tables by 15-50% and clipped cell text.
+- Wrap an implicit single-line label instead of squeezing it onto one line when the shape omits
+  `bodyPr@wrap`. OOXML defaults that attribute to `square`, so such a label wraps; squeezing is
+  now limited to boxes where a single unwrapped line does not even fit the height.
 - Stop rendering PPTX-embedded fonts by default. PowerPoint subsets embedded faces to the glyphs it
   believes are used, and a subset missing a glyph makes the browser fall back per character, so a
   single run rendered in two typefaces at two apparent sizes.

@@ -1661,6 +1661,74 @@ describe('ShapeRenderer', () => {
     }
   });
 
+  it('wraps an implicit single-line label instead of squeezing it when one line fits the height (1.pptx slide 23)', () => {
+    // bodyPr omits @wrap, which OOXML defaults to "square", so the label wraps. An unwrapped
+    // single line already fits the box height here, so the width overflow must be solved by
+    // wrapping rather than by squeezing 16 characters onto one line at 62% scale.
+    const isFitContainer = (el: HTMLElement) =>
+      el.style.display === 'flex' && el.style.flexDirection === 'column';
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return isFitContainer(this) ? 114 : 0;
+      });
+    const clientHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return isFitContainer(this) ? 36 : 0;
+      });
+    const scrollWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return isFitContainer(this) && this.style.whiteSpace === 'nowrap' ? 186 : 105;
+      });
+    const scrollHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        // One unwrapped line fits 36px; wrapping to two lines slightly overflows it.
+        return isFitContainer(this) && this.style.whiteSpace === 'nowrap' ? 25 : 40;
+      });
+
+    try {
+      const xml = `
+        <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+              xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <p:nvSpPr>
+            <p:cNvPr id="136" name="rounded rectangle 135"/>
+            <p:cNvSpPr/>
+            <p:nvPr/>
+          </p:nvSpPr>
+          <p:spPr>
+            <a:xfrm><a:off x="6282690" y="3040380"/><a:ext cx="1090295" cy="338554"/></a:xfrm>
+            <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+          </p:spPr>
+          <p:txBody>
+            <a:bodyPr lIns="0" rIns="0" rtlCol="0" anchor="ctr"/>
+            <a:lstStyle/>
+            <a:p>
+              <a:pPr algn="ctr"><a:defRPr/></a:pPr>
+              <a:r><a:rPr sz="941"/><a:t>책무에 대한 이행 점검을 위한 조치활동</a:t></a:r>
+            </a:p>
+          </p:txBody>
+        </p:sp>
+      `;
+
+      const el = renderShape(parseShapeNode(parseXml(xml)), createMockRenderContext());
+      const textContainer = Array.from(el.querySelectorAll('div')).find(
+        (div) => div.textContent?.includes('조치활동') && div.style.flexDirection === 'column',
+      ) as HTMLElement | undefined;
+
+      expect(textContainer).toBeDefined();
+      expect(textContainer!.style.transform).not.toContain('scale(');
+      expect(textContainer!.style.whiteSpace).not.toBe('nowrap');
+    } finally {
+      clientWidthSpy.mockRestore();
+      clientHeightSpy.mockRestore();
+      scrollWidthSpy.mockRestore();
+      scrollHeightSpy.mockRestore();
+    }
+  });
+
   it('does not shrink implicit single-line labels solely because insets exceed height (ai-computing slide 29)', () => {
     const isFitContainer = (el: HTMLElement) =>
       el.style.display === 'flex' && el.style.flexDirection === 'column';
