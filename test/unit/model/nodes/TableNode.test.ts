@@ -97,6 +97,23 @@ describe('parseTableNode', () => {
     expect(node.size.h).toBeCloseTo(96, 0);
   });
 
+  it('keeps the frame extent when rows only declare a minimum height', () => {
+    // a:tr@h is a minimum, not the rendered height: PowerPoint stores the grown height on the
+    // graphicFrame. Deriving the height from the grid alone crushed such tables (real-world
+    // decks lost 15-50% of their height and clipped cell text).
+    const node = parseTableNode(
+      makeTableXml({
+        gridWidths: [914400, 1828800],
+        rowHeight: 182880, // 2 x 19.2px minimum = 38.4px
+        frameWidth: 2743200, // 288px, matches the grid
+        frameHeight: 1257300, // 132px, grown to fit content
+      }),
+    );
+
+    expect(node.size.w).toBeCloseTo(288, 0);
+    expect(node.size.h).toBeCloseTo(132, 0);
+  });
+
   it('falls back to each frame extent axis when the grid has no explicit size', () => {
     const node = parseTableNode(
       makeTableXml({

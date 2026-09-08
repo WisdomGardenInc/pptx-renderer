@@ -18,6 +18,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added optional local font profiles and per-evaluation provenance for PPTX/ground-truth/font
   hashes, renderer Git state, and the actual browser version.
 
+### Fixed
+
+- Derive table height from the larger of the graphic frame extent and the row-height sum. `a:tr@h`
+  is a minimum row height that PowerPoint grows to fit content, so deriving height from the grid
+  alone crushed real-world tables by 15-50% and clipped cell text.
+
 ### Changed
 
 - The python-pptx corpus generator now supports native PDF export on macOS, repeatable exact/glob

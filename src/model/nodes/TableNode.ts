@@ -121,6 +121,9 @@ export function parseTableNode(frameNode: SafeXmlNode): TableNodeData {
     rows.push(parseRow(trNode));
   }
 
+  // a:gridCol@w is a definite column width, so the table is at least as wide as their sum.
+  // a:tr@h is only a MINIMUM row height — PowerPoint grows rows to fit their content — so the
+  // sum of row heights is a lower bound, never the actual height.
   const gridWidth = columns.reduce((sum, width) => sum + width, 0);
   const gridHeight = rows.reduce((sum, row) => sum + row.height, 0);
 
@@ -130,9 +133,11 @@ export function parseTableNode(frameNode: SafeXmlNode): TableNodeData {
 
   return {
     ...base,
+    // Some producers leave a stale graphicFrame extent that is smaller than the grid it holds,
+    // so the frame alone cannot be trusted either. Take whichever bound is larger on each axis.
     size: {
-      w: gridWidth > 0 ? gridWidth : base.size.w,
-      h: gridHeight > 0 ? gridHeight : base.size.h,
+      w: Math.max(base.size.w, gridWidth),
+      h: Math.max(base.size.h, gridHeight),
     },
     nodeType: 'table',
     columns,
