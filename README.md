@@ -229,6 +229,7 @@ const viewer = await PptxViewer.open(buffer, container, {
 | `lazyMedia`          | `boolean`                   | `false`       | Decode embedded media on demand instead of during ZIP parsing. Best for large decks with windowed list rendering. |
 | `lazySlides`         | `boolean`                   | `false`       | Parse slide shape/table/chart nodes on demand. Best for large decks with windowed list rendering.                 |
 | `pdfjs`              | `PdfjsConfig`               | --            | Optional PDF.js URLs for EMF-embedded PDF fallback rendering, or `false` to disable it.                           |
+| `embeddedFonts`      | `boolean`                   | `false`       | Render fonts embedded in the PPTX. Off by default because PowerPoint subsets embedded faces.                      |
 | `embeddedFontLimits` | `EmbeddedFontLimits`        | safe defaults | Optional embedded-font resource limit overrides. Omitted fields retain the built-in defaults.                     |
 | `fontFaces`          | `readonly FontFaceConfig[]` | --            | Host-provided font faces for typefaces referenced by the PPTX but not embedded in it.                             |
 | `onSlideChange`      | `(index) => void`           | --            | Shorthand for `slidechange` event                                                                                 |
@@ -240,6 +241,16 @@ const viewer = await PptxViewer.open(buffer, container, {
 | `onRenderComplete`   | `() => void`                | --            | Shorthand for `rendercomplete` event                                                                              |
 
 All shorthand callbacks are also available as `EventTarget` events (e.g. `viewer.addEventListener('slidechange', ...)`).
+
+Fonts embedded in the PPTX are **off by default**. PowerPoint subsets embedded faces down to the
+glyphs it believes are used, and a subset that misses a glyph makes the browser fall back per
+character — one run then renders in two typefaces at two apparent sizes. Host fonts keep a run
+internally consistent even when they are not the authored face. Enable `embeddedFonts` for decks
+known to embed complete faces:
+
+```ts
+const viewer = new PptxViewer(container, { embeddedFonts: true });
+```
 
 Embedded font decompression is bounded by default. Trusted applications can provide partial
 `embeddedFontLimits` overrides; see the [performance guide](docs/PERFORMANCE.md#embedded-font-limits)

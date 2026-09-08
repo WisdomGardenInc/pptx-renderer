@@ -9,8 +9,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
-- Added browser rendering for licensed EOT/MTX fonts embedded in PowerPoint files, with
-  bounded face, byte, and processing budgets plus host-font fallback for rejected faces.
+- Added opt-in browser rendering for licensed EOT/MTX fonts embedded in PowerPoint files, with
+  bounded face, byte, and processing budgets plus host-font fallback for rejected faces. Enable it
+  with the `embeddedFonts` option on `PptxViewer` or headless `renderSlide()`.
 - Added `fontFaces` options to `PptxViewer` and headless `renderSlide()` so host applications can
   register missing regular/bold font data before PowerPoint text layout is measured.
 - Added a 12-case CJK native-oracle matrix for wrap, autofit, line/paragraph spacing, adjacent
@@ -23,6 +24,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Derive table height from the larger of the graphic frame extent and the row-height sum. `a:tr@h`
   is a minimum row height that PowerPoint grows to fit content, so deriving height from the grid
   alone crushed real-world tables by 15-50% and clipped cell text.
+- Stop rendering PPTX-embedded fonts by default. PowerPoint subsets embedded faces to the glyphs it
+  believes are used, and a subset missing a glyph makes the browser fall back per character, so a
+  single run rendered in two typefaces at two apparent sizes.
 
 ### Changed
 

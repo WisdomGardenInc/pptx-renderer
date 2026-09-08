@@ -46,6 +46,12 @@ export interface SlideRendererOptions {
   pdfjs?: PdfjsConfig;
   /** Shared set of live ECharts instances for explicit disposal. */
   chartInstances?: Set<EChartsType>;
+  /**
+   * Render fonts embedded in the PPTX. Off by default — PowerPoint subsets embedded faces, and a
+   * subset missing a glyph makes the browser fall back per character, mixing typefaces inside one
+   * run. Enable when the decks are known to embed complete faces.
+   */
+  embeddedFonts?: boolean;
   /** Optional embedded-font resource limit overrides. Defaults remain enforced for omitted fields. */
   embeddedFontLimits?: EmbeddedFontLimits;
   /** Host-provided faces for fonts referenced by the PPTX but not embedded in it. */
@@ -277,6 +283,7 @@ export function renderSlide(
     abortController.signal,
   );
   ctx.asyncTasks = asyncTasks;
+  ctx.embeddedFontsEnabled = options?.embeddedFonts === true;
   if (options?.onNavigate) {
     ctx.onNavigate = options.onNavigate;
   }

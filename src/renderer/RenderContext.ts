@@ -29,6 +29,13 @@ export interface RenderContext {
   asyncTasks?: Promise<void>[];
   /** Presentation-specific embedded CSS families referenced by this render. */
   usedEmbeddedFontFamilies?: Set<string>;
+  /**
+   * Opt-in for PPTX-embedded fonts. Off by default: PowerPoint subsets embedded faces to the
+   * characters it thinks are used, and a subset that misses a glyph makes the browser fall back
+   * per character, mixing two typefaces inside a single run. Until run-level glyph coverage is
+   * checked, host fonts render a run consistently even when they are not the authored face.
+   */
+  embeddedFontsEnabled?: boolean;
   /** Aborted when the owning slide is disposed; async renderers must stop late writes. */
   signal?: AbortSignal;
   /** Optional pdfjs URLs for EMF-embedded PDF fallback rendering. */

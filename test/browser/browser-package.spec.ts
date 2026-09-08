@@ -477,7 +477,7 @@ test('tolerated vertical text metric overhang remains non-scrollable in Chromium
   expect(result.computed).toEqual(['clip', 'visible']);
 });
 
-test('embedded PPTX fonts load without host font installation', async ({ page }) => {
+test('embedded PPTX fonts load when opted in and stay off by default', async ({ page }) => {
   await page.goto('/test/browser/blank.html');
   const result = await page.evaluate(async () => {
     const renderer = await import('/dist/aiden0z-pptx-renderer.browser.es.js');
@@ -485,7 +485,9 @@ test('embedded PPTX fonts load without host font installation', async ({ page })
     const presentation = renderer.buildPresentation(
       await renderer.parseZip(await response.arrayBuffer()),
     );
-    const handle = renderer.renderSlide(presentation, presentation.slides[0]);
+    const handle = renderer.renderSlide(presentation, presentation.slides[0], {
+      embeddedFonts: true,
+    });
     document.body.replaceChildren(handle.element);
     await handle.ready;
 
@@ -496,17 +498,38 @@ test('embedded PPTX fonts load without host font installation', async ({ page })
     const registeredBeforeDispose = Array.from(document.fonts).filter(
       (face) => face.family === renderFamily,
     ).length;
+    const fontFamily = vietnamese ? getComputedStyle(vietnamese).fontFamily : '';
     handle.dispose();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    const registeredAfterDispose = Array.from(document.fonts).filter(
+      (face) => face.family === renderFamily,
+    ).length;
+
+    // Without the opt-in the run must stay on host fonts, so a subsetted face cannot leave
+    // some characters on the embedded family and the rest on a browser fallback.
+    const defaultHandle = renderer.renderSlide(presentation, presentation.slides[0]);
+    document.body.replaceChildren(defaultHandle.element);
+    await defaultHandle.ready;
+    const defaultVietnamese = Array.from(defaultHandle.element.querySelectorAll('span')).find(
+      (span) => span.textContent?.includes('Tiếng Việt'),
+    );
+    const defaultFontFamily = defaultVietnamese
+      ? getComputedStyle(defaultVietnamese).fontFamily
+      : '';
+    const defaultRegistered = Array.from(document.fonts).filter(
+      (face) => face.family === renderFamily,
+    ).length;
+    defaultHandle.dispose();
+
     return {
       embeddedFaceCount: presentation.embeddedFonts?.length ?? 0,
-      fontFamily: vietnamese ? getComputedStyle(vietnamese).fontFamily : '',
+      fontFamily,
       fontLoaded: document.fonts.check(`12px "${renderFamily}"`),
       renderFamily,
       registeredBeforeDispose,
-      registeredAfterDispose: Array.from(document.fonts).filter(
-        (face) => face.family === renderFamily,
-      ).length,
+      registeredAfterDispose,
+      defaultFontFamily,
+      defaultRegistered,
     };
   });
 
@@ -516,4 +539,7 @@ test('embedded PPTX fonts load without host font installation', async ({ page })
   expect(result.fontLoaded).toBe(true);
   expect(result.registeredBeforeDispose).toBe(2);
   expect(result.registeredAfterDispose).toBe(0);
+  expect(result.defaultFontFamily).not.toContain(result.renderFamily);
+  expect(result.defaultFontFamily).not.toBe('');
+  expect(result.defaultRegistered).toBe(0);
 });

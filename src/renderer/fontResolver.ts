@@ -76,6 +76,12 @@ function resolveThemeFontName(
   return fonts.latin || fonts.ea || fonts.cs || typeface;
 }
 
+/** Embedded faces are only consulted when the host opted in; see `embeddedFontsEnabled`. */
+function embeddedFamilyFor(typeface: string, ctx: RenderContext): string | undefined {
+  if (!ctx.embeddedFontsEnabled) return undefined;
+  return ctx.presentation.embeddedFontFamilies?.get(typeface.trim().toLowerCase());
+}
+
 /**
  * Resolve theme font placeholder references like "+mj-lt" or "+mn-ea".
  */
@@ -85,7 +91,7 @@ export function resolveThemeFont(
   languageHints?: LanguageHint | LanguageHint[],
 ): string {
   const resolved = resolveThemeFontName(typeface, ctx, languageHints);
-  const embeddedFamily = ctx.presentation.embeddedFontFamilies?.get(resolved.trim().toLowerCase());
+  const embeddedFamily = embeddedFamilyFor(resolved, ctx);
   if (!embeddedFamily) return resolved;
   ctx.usedEmbeddedFontFamilies?.add(embeddedFamily);
   return embeddedFamily;
@@ -101,7 +107,7 @@ export function resolveThemeFontStack(
   for (const typeface of typefaces) {
     if (!typeface) continue;
     const resolved = resolveThemeFontName(typeface, ctx, languageHints).trim();
-    const embedded = ctx.presentation.embeddedFontFamilies?.get(resolved.toLowerCase());
+    const embedded = embeddedFamilyFor(resolved, ctx);
     if (embedded) ctx.usedEmbeddedFontFamilies?.add(embedded);
     for (const font of embedded ? [embedded, resolved] : [resolved]) {
       const key = font.toLowerCase();

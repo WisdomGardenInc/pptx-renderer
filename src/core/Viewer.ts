@@ -43,6 +43,12 @@ export interface ViewerOptions {
   lazySlides?: boolean;
   /** Optional pdfjs URLs for EMF-embedded PDF fallback rendering. Use `false` to disable. */
   pdfjs?: PdfjsConfig;
+  /**
+   * Render fonts embedded in the PPTX. Off by default — PowerPoint subsets embedded faces,
+   * and a subset missing a glyph makes the browser fall back per character, mixing
+   * typefaces inside one run. Enable when the decks are known to embed complete faces.
+   */
+  embeddedFonts?: boolean;
   /** Optional embedded-font resource limit overrides. Defaults remain enforced for omitted fields. */
   embeddedFontLimits?: EmbeddedFontLimits;
   /** Host-provided faces for fonts referenced by the PPTX but not embedded in it. */
@@ -492,6 +498,7 @@ export class PptxViewer extends EventTarget {
       onNodeError: (nodeId, error) => this.emitNodeError(nodeId, error),
       onNavigate: (target) => this.handleNavigate(target),
       pdfjs: this.viewerOptions.pdfjs,
+      embeddedFonts: this.viewerOptions.embeddedFonts,
       embeddedFontLimits: this.viewerOptions.embeddedFontLimits,
       fontFaces: this.viewerOptions.fontFaces,
     });
@@ -989,6 +996,7 @@ export class PptxViewer extends EventTarget {
         onNavigate: (target) => this.handleNavigate(target),
         mediaUrlCache: this.mediaUrlCache,
         pdfjs: this.viewerOptions.pdfjs,
+        embeddedFonts: this.viewerOptions.embeddedFonts,
         embeddedFontLimits: this.viewerOptions.embeddedFontLimits,
         fontFaces: this.viewerOptions.fontFaces,
         chartInstances: this.chartInstances,
@@ -1221,6 +1229,7 @@ export class PptxViewer extends EventTarget {
         onNavigate: (target) => this.handleNavigate(target),
         mediaUrlCache: this.mediaUrlCache,
         pdfjs: this.viewerOptions.pdfjs,
+        embeddedFonts: this.viewerOptions.embeddedFonts,
         embeddedFontLimits: this.viewerOptions.embeddedFontLimits,
         fontFaces: this.viewerOptions.fontFaces,
         chartInstances: this.chartInstances,

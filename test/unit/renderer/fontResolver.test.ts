@@ -88,12 +88,26 @@ describe('fontResolver', () => {
     const ctx = createMockRenderContext();
     ctx.presentation.embeddedFontFamilies = new Map([['example sans', '__pptx_embedded_1_0']]);
     ctx.usedEmbeddedFontFamilies = new Set();
+    ctx.embeddedFontsEnabled = true;
 
     expect(resolveThemeFontStack(['Example Sans'], ctx)).toEqual([
       '__pptx_embedded_1_0',
       'Example Sans',
     ]);
     expect(ctx.usedEmbeddedFontFamilies).toEqual(new Set(['__pptx_embedded_1_0']));
+  });
+
+  it('ignores embedded faces unless the host opts in', () => {
+    // PowerPoint subsets embedded faces to the glyphs it believes are used. A subset that misses a
+    // glyph makes the browser fall back per character, so one run renders in two typefaces at two
+    // apparent sizes. Staying on host fonts keeps a run internally consistent.
+    const ctx = createMockRenderContext();
+    ctx.presentation.embeddedFontFamilies = new Map([['example sans', '__pptx_embedded_1_0']]);
+    ctx.usedEmbeddedFontFamilies = new Set();
+
+    expect(resolveThemeFontStack(['Example Sans'], ctx)).toEqual(['Example Sans']);
+    expect(resolveThemeFont('Example Sans', ctx)).toBe('Example Sans');
+    expect(ctx.usedEmbeddedFontFamilies).toEqual(new Set());
   });
 
   it('serializes CSS font family stacks with aliases, CJK fallbacks, generics, and escaping', () => {
