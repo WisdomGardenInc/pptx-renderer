@@ -1963,6 +1963,101 @@ describe('ChartRenderer', () => {
       expect(series[0].radius).toEqual(['49%', '82%']);
     });
 
+    it('places a doughnut from the plotArea manual layout, not the auto heuristics', () => {
+      // `layoutTarget="inner"` gives the disc's own box as fractions of the frame.
+      // A percentage radius would be relative to the frame's shorter side and
+      // would shrink the ring on a frame that is not square.
+      const xml = `
+        <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+                      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <c:chart>
+            <c:plotArea>
+              <c:layout>
+                <c:manualLayout>
+                  <c:layoutTarget val="inner"/>
+                  <c:xMode val="edge"/><c:yMode val="edge"/>
+                  <c:x val="0.05"/><c:y val="0.02"/>
+                  <c:w val="0.9"/><c:h val="0.96"/>
+                </c:manualLayout>
+              </c:layout>
+              <c:doughnutChart>
+                <c:holeSize val="80"/>
+                <c:ser>
+                  <c:idx val="0"/><c:order val="0"/>
+                  <c:cat>
+                    <c:strRef><c:strCache><c:ptCount val="2"/>
+                      <c:pt idx="0"><c:v>A</c:v></c:pt>
+                      <c:pt idx="1"><c:v>B</c:v></c:pt>
+                    </c:strCache></c:strRef>
+                  </c:cat>
+                  <c:val>
+                    <c:numRef><c:numCache><c:ptCount val="2"/>
+                      <c:pt idx="0"><c:v>20</c:v></c:pt>
+                      <c:pt idx="1"><c:v>80</c:v></c:pt>
+                    </c:numCache></c:numRef>
+                  </c:val>
+                </c:ser>
+              </c:doughnutChart>
+            </c:plotArea>
+          </c:chart>
+        </c:chartSpace>`;
+
+      const { option } = parseChartXml(parseXml(xml), createMockRenderContext(), undefined, {
+        w: 500,
+        h: 400,
+      });
+      const series = option.series as any[];
+
+      // Box is 450 x 384 px; the disc fits the shorter side.
+      expect(series[0].center).toEqual([250, 200]);
+      expect(series[0].radius[0]).toBeCloseTo(153.6, 6);
+      expect(series[0].radius[1]).toBeCloseTo(192, 6);
+    });
+
+    it('leaves an explicitly empty slice transparent instead of taking a palette colour', () => {
+      const xml = `
+        <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+                      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <c:chart>
+            <c:plotArea>
+              <c:doughnutChart>
+                <c:holeSize val="80"/>
+                <c:ser>
+                  <c:idx val="0"/><c:order val="0"/>
+                  <c:spPr><a:solidFill><a:srgbClr val="0E2063"/></a:solidFill></c:spPr>
+                  <c:dPt>
+                    <c:idx val="0"/>
+                    <c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>
+                  </c:dPt>
+                  <c:dPt>
+                    <c:idx val="1"/>
+                    <c:spPr><a:solidFill><a:srgbClr val="FFFFF0"/></a:solidFill></c:spPr>
+                  </c:dPt>
+                  <c:cat>
+                    <c:strRef><c:strCache><c:ptCount val="2"/>
+                      <c:pt idx="0"><c:v>A</c:v></c:pt>
+                      <c:pt idx="1"><c:v>B</c:v></c:pt>
+                    </c:strCache></c:strRef>
+                  </c:cat>
+                  <c:val>
+                    <c:numRef><c:numCache><c:ptCount val="2"/>
+                      <c:pt idx="0"><c:v>20</c:v></c:pt>
+                      <c:pt idx="1"><c:v>80</c:v></c:pt>
+                    </c:numCache></c:numRef>
+                  </c:val>
+                </c:ser>
+              </c:doughnutChart>
+            </c:plotArea>
+          </c:chart>
+        </c:chartSpace>`;
+
+      const { option } = parseChartOption(xml);
+      const data = (option.series as any[])[0].data;
+
+      expect(data[0].itemStyle.color).toBe('transparent');
+      expect(data[1].itemStyle.color).toBe('#FFFFF0');
+    });
+
     it('should parse radarChart with categories and multiple series', () => {
       const xml = `
         <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"

@@ -657,20 +657,33 @@ function uniquePieLegendCategories(seriesArr: SeriesData[]): string[] {
   return out;
 }
 
+/** ECharts pie radius: one value, or an [inner, outer] pair, in px or percent. */
+type PieRadius = number | string | [number | string, number | string];
+
+/** Scale a pie radius, keeping its unit (pixels from a manual layout, else percent). */
+function scalePieRadius(radius: number | string, factor: number): number | string {
+  if (typeof radius === 'number') return radius * factor;
+  const value = Number.parseFloat(radius);
+  return Number.isFinite(value) ? `${value * factor}%` : radius;
+}
+
 function computeDoughnutRingRadius(
-  baseRadius: [string, string] | string,
+  baseRadius: PieRadius,
   ringIndex: number,
   ringCount: number,
-): [string, string] | string {
+): PieRadius {
   if (!Array.isArray(baseRadius) || ringCount <= 1) return baseRadius;
-  const inner = Number.parseFloat(baseRadius[0]);
-  const outer = Number.parseFloat(baseRadius[1]);
+  const inner = Number.parseFloat(String(baseRadius[0]));
+  const outer = Number.parseFloat(String(baseRadius[1]));
   if (!Number.isFinite(inner) || !Number.isFinite(outer) || outer <= inner) return baseRadius;
   const gap = 1;
   const band = (outer - inner - gap * (ringCount - 1)) / ringCount;
   const ringInner = Math.round(inner + ringIndex * (band + gap));
   const ringOuter = Math.round(ringInner + band);
-  return [`${ringInner}%`, `${ringOuter}%`];
+  // A manual layout gives pixel radii; turning them into percentages would resize the ring.
+  return typeof baseRadius[0] === 'number'
+    ? [ringInner, ringOuter]
+    : [`${ringInner}%`, `${ringOuter}%`];
 }
 
 function buildBarChartOption(
@@ -1187,6 +1200,7 @@ function buildPieChartOption(
   seriesArr: SeriesData[],
   isDoughnut: boolean,
   ctx: RenderContext,
+  chartSize?: ChartPixelSize,
 ): EChartsTypes.EChartsOption {
   const titleOption = buildChartTitleOption(chartNode, seriesArr, ctx, 12);
   const legendInfo = extractLegendInfo(chartNode, ctx);
@@ -1239,7 +1253,17 @@ function buildPieChartOption(
   const hasExplosion = seriesLabelMeta.some((meta) =>
     meta.explosions?.some((explosion) => explosion > 0),
   );
-  const pieLayout = computePieLayout(legendInfo, isDoughnut, showLabel, holeSizePct, hasExplosion);
+  // A `c:plotArea` manual layout places the disc explicitly; the heuristics below
+  // only apply when the deck leaves the placement automatic.
+  const manualLayout = extractManualCircularLayout(chartNode, chartSize);
+  const pieLayout: { center: [number | string, number | string]; radius: PieRadius } = manualLayout
+    ? {
+        center: manualLayout.center,
+        radius: isDoughnut
+          ? [scalePieRadius(manualLayout.radius, holeSizePct / 100), manualLayout.radius]
+          : manualLayout.radius,
+      }
+    : computePieLayout(legendInfo, isDoughnut, showLabel, holeSizePct, hasExplosion);
   const startAngle = mapFirstSliceAngle(chartTypeNode.child('firstSliceAng').numAttr('val'));
 
   const series: EChartsTypes.PieSeriesOption[] = seriesLabelMeta.map((meta, idx) => {
@@ -1421,7 +1445,7 @@ function buildRadarChartOption(
   }));
 
   const radarHasTopLegend = legendIsAtTop(legendInfo) && !legendInfo?.overlay;
-  const manualRadarLayout = extractManualLayoutRadar(chartNode, chartSize);
+  const manualRadarLayout = extractManualCircularLayout(chartNode, chartSize);
   const radarCenter: [number | string, number | string] =
     manualRadarLayout?.center ??
     (radarHasTopLegend
@@ -2075,7 +2099,13 @@ function extractManualLayoutGrid(
   return out;
 }
 
-function extractManualLayoutRadar(
+/**
+ * Centre and radius of a `c:plotArea` manual layout, for the charts drawn as a
+ * disc (pie, doughnut, radar). Pixels when the frame size is known: a percentage
+ * radius is relative to the frame's shorter side, which misplaces the disc on a
+ * frame that is not square.
+ */
+function extractManualCircularLayout(
   chartNode: SafeXmlNode,
   chartSize?: ChartPixelSize,
 ): { center: [number | string, number | string]; radius: number | string } | undefined {
@@ -2164,9 +2194,9 @@ function buildOptionForChartType(
       return buildLineChartOption(chartTypeNode, chartNode, seriesArr, ctx, true, chartPalette);
     case 'pieChart':
     case 'pie3DChart':
-      return buildPieChartOption(chartTypeNode, chartNode, seriesArr, false, ctx);
+      return buildPieChartOption(chartTypeNode, chartNode, seriesArr, false, ctx, chartSize);
     case 'doughnutChart':
-      return buildPieChartOption(chartTypeNode, chartNode, seriesArr, true, ctx);
+      return buildPieChartOption(chartTypeNode, chartNode, seriesArr, true, ctx, chartSize);
     case 'radarChart':
       return buildRadarChartOption(
         chartTypeNode,

@@ -206,11 +206,17 @@ export function extractDataPointStyles(
     if (!spPr.exists()) continue;
 
     const pointStyle: DataPointStyle = {};
-    const solidFill = spPr.child('solidFill');
-    if (solidFill.exists()) {
-      const hex = resolveColorToHex(solidFill, ctx);
-      if (hex) {
-        pointStyle.color = hex;
+    if (spPr.child('noFill').exists()) {
+      // An explicitly empty slice shows what sits behind the chart; without this
+      // it falls through to the palette and paints an unrelated colour.
+      pointStyle.color = 'transparent';
+    } else {
+      const solidFill = spPr.child('solidFill');
+      if (solidFill.exists()) {
+        const hex = resolveColorToHex(solidFill, ctx);
+        if (hex) {
+          pointStyle.color = hex;
+        }
       }
     }
 
