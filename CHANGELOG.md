@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-10
+
 ### Added
 
 - Added opt-in browser rendering for licensed EOT/MTX fonts embedded in PowerPoint files, with
@@ -18,6 +20,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   run spacing, and parent-shape layout, with tracked coverage/font metadata and ignored binaries.
 - Added optional local font profiles and per-evaluation provenance for PPTX/ground-truth/font
   hashes, renderer Git state, and the actual browser version.
+- Added vector EMF rendering: plain GDI path drawings inside EMF pictures are converted to SVG,
+  so decorative artwork that carries neither an embedded PDF nor a bitmap is no longer dropped.
+  Covers path brackets, the poly line/gon/bezier families, brush and pen objects, map modes,
+  world transforms and DC save/restore; text, blits, clipping and arcs are skipped.
 
 ### Fixed
 
@@ -87,6 +93,26 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   axis (e.g. a divider/underline built from horizontal connectors). The populated axis is now
   offset and scaled correctly instead of skipping the remap, which had left the children
   displaced by the group's child offset.
+
+- Give every CJK font family a fallback chain. Only eight hardcoded names were recognised, so a
+  deck asking for an uninstalled foundry font emitted a bare `font-family` and the browser fell
+  back to its default standard font — a Latin serif on Windows, tofu without CJK coverage.
+- Index media stored outside `ppt/media/`. OPC permits a picture next to the part that references
+  it, and those parts were dropped instead of rendered; they now also count toward the media budget.
+- Paint chart series picture fills (`a:blipFill`) instead of falling back to the palette, sized and
+  anchored to the bar they paint for both the `stretch` and `stack` picture formats. Picture-filled
+  bubbles use an image symbol, and legend swatches show the artwork rather than a palette colour.
+- Keep a bottom chart legend clear of the value-axis labels by measuring the legend overlay instead
+  of reserving a constant that only held at one text size.
+- Place pie and doughnut charts from the `c:plotArea` manual layout, and leave a data point with
+  `a:noFill` transparent so it exposes what sits behind the chart.
+- Honour the blipFill source crop, tiling and geometry clipping on EMF pictures, which previously
+  bypassed the shared image path and stretched a cropped band to its full frame.
+- Shadow picture-filled shapes along their geometry. The effect fell back to a wrapper box-shadow
+  that traced the bounding rectangle, drawing a straight line across a rotated custom geometry.
+- Keep an unanchored single-line autofit text box top-aligned. `a:pPr@algn` is horizontal
+  alignment and `a:bodyPr@anchor` defaults to top, so centring conflated the two and pushed text
+  down onto whatever sat below it.
 
 ## [1.2.4] - 2026-07-10
 
