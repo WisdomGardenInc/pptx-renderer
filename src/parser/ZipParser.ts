@@ -57,8 +57,32 @@ function throwZipLimitExceeded(reason: string): never {
   throw new Error(`PPTX zip limit exceeded: ${reason}`);
 }
 
+/**
+ * Media parts normally live under `ppt/media/`, but some producers emit them
+ * next to the part that references them (e.g. `ppt/slides/media/image1.svg`).
+ * Treat any `media/` directory inside the `ppt/` tree as a media location.
+ */
 function isMediaPath(path: string): boolean {
+  return /^ppt\/(?:[^/]+\/)*media\/./.test(path);
+}
+
+function isCanonicalMediaPath(path: string): boolean {
   return path.startsWith('ppt/media/');
+}
+
+/**
+ * Canonical `ppt/media/...` alias for a media part stored outside `ppt/media/`.
+ *
+ * Relationship targets are resolved against `ppt/media/` (see resolveMediaPath),
+ * so non-standard locations are additionally indexed under that canonical key.
+ */
+function canonicalMediaAlias(path: string): string | undefined {
+  if (isCanonicalMediaPath(path)) return undefined;
+  const marker = '/media/';
+  const index = path.lastIndexOf(marker);
+  if (index < 0) return undefined;
+  const rest = path.slice(index + marker.length);
+  return rest ? `ppt/media/${rest}` : undefined;
 }
 
 function decodeZipPath(path: string): string {
@@ -133,16 +157,21 @@ class ZipLazyMediaResolver implements MediaResolver {
   }
 
   async resolve(target: string): Promise<ResolvedMedia | undefined> {
-    for (const mediaPath of resolveMediaPathCandidates(target)) {
+    const candidates = resolveMediaPathCandidates(target);
+
+    for (const mediaPath of candidates) {
       const data = this.media.get(mediaPath);
       if (data) return { mediaPath, data };
     }
 
-    for (const mediaPath of resolveMediaPathCandidates(target)) {
+    for (const mediaPath of candidates) {
       const entry = this.entries.get(mediaPath);
       if (!entry) continue;
 
       const data = await this.readEntry(entry);
+      // Aliased entries are stored under their real path; also index the
+      // requested candidate so repeat lookups hit the cache above.
+      if (mediaPath !== entry.path) setPathMapEntry(this.media, mediaPath, data);
       return { mediaPath, data };
     }
 
@@ -366,6 +395,7 @@ async function parseZipInternal(
     unknownMediaBytes: 0,
   };
   const lazyMediaEntries = new Map<string, LazyMediaEntry>();
+  const mediaAliases: Array<[alias: string, realPath: string]> = [];
 
   await mapWithConcurrency(entries, maxConcurrency, async ([path, file]) => {
     const normalizedPath = path.replace(/\\/g, '/');
@@ -396,6 +426,9 @@ async function parseZipInternal(
 
     // --- Media (binary) ---
     if (isMediaPath(normalizedPath)) {
+      const alias = canonicalMediaAlias(normalizedPath);
+      if (alias) mediaAliases.push([alias, normalizedPath]);
+
       if (options.lazyMedia) {
         setPathMapEntry(lazyMediaEntries, normalizedPath, { path: normalizedPath, file });
         return;
@@ -549,6 +582,26 @@ async function parseZipInternal(
 
     await countUncategorizedEntryIfNeeded(normalizedPath, file, limitState);
   });
+
+  // Index out-of-tree media under their canonical `ppt/media/` key, without
+  // ever shadowing a real `ppt/media/` part of the same name.
+  //
+  // Entries are collected by concurrent workers, so their order reflects read
+  // completion rather than archive order. Two parts in different directories can
+  // claim the same canonical alias (`ppt/{slides,charts}/media/x.png`); sorting by
+  // real path makes the winner the same on every parse instead of a race.
+  mediaAliases.sort(([, a], [, b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+  for (const [alias, realPath] of mediaAliases) {
+    if (options.lazyMedia) {
+      const entry = lazyMediaEntries.get(realPath);
+      if (entry && !lazyMediaEntries.has(alias)) setPathMapEntry(lazyMediaEntries, alias, entry);
+      continue;
+    }
+
+    const bytes = result.media.get(realPath);
+    if (bytes && !result.media.has(alias)) setPathMapEntry(result.media, alias, bytes);
+  }
 
   if (options.lazyMedia) {
     result.mediaResolver = new ZipLazyMediaResolver(

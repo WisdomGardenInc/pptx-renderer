@@ -279,6 +279,75 @@ describe('parseZip – categorization', () => {
     expect(files.media.get('ppt/media/image1.png')).toEqual(pngBytes);
   });
 
+  it('indexes media stored next to the referencing part under its canonical path', async () => {
+    const svgBytes = new Uint8Array([0x3c, 0x73, 0x76, 0x67, 0x2f, 0x3e]);
+    const buffer = await buildZip([
+      ...SKELETON,
+      { path: 'ppt/slides/media/image1.svg', data: svgBytes },
+    ]);
+
+    const files = await parseZip(buffer);
+
+    expect(files.media.get('ppt/slides/media/image1.svg')).toEqual(svgBytes);
+    expect(files.media.get('ppt/media/image1.svg')).toEqual(svgBytes);
+  });
+
+  it('never lets an out-of-tree media part shadow a real ppt/media part', async () => {
+    const canonical = new Uint8Array([1, 1, 1]);
+    const nested = new Uint8Array([2, 2, 2]);
+    const buffer = await buildZip([
+      ...SKELETON,
+      { path: 'ppt/media/image1.png', data: canonical },
+      { path: 'ppt/slides/media/image1.png', data: nested },
+    ]);
+
+    const files = await parseZip(buffer);
+
+    expect(files.media.get('ppt/media/image1.png')).toEqual(canonical);
+    expect(files.media.get('ppt/slides/media/image1.png')).toEqual(nested);
+  });
+
+  it('picks the same alias winner regardless of archive order when two collide', async () => {
+    const charts = new Uint8Array([1, 1, 1]);
+    const slides = new Uint8Array([2, 2, 2]);
+    const collision = [
+      { path: 'ppt/charts/media/image1.png', data: charts },
+      { path: 'ppt/slides/media/image1.png', data: slides },
+    ];
+
+    // Both parts want the canonical `ppt/media/image1.png` key. Workers collect
+    // aliases in read-completion order, so the winner must come from a stable
+    // rule (lowest real path) rather than from whichever entry finished first.
+    const forward = await parseZip(await buildZip([...SKELETON, ...collision]));
+    const reversed = await parseZip(await buildZip([...SKELETON, ...collision.reverse()]));
+
+    expect(forward.media.get('ppt/media/image1.png')).toEqual(charts);
+    expect(reversed.media.get('ppt/media/image1.png')).toEqual(charts);
+    // Both remain reachable under their real paths.
+    expect(forward.media.get('ppt/slides/media/image1.png')).toEqual(slides);
+    expect(reversed.media.get('ppt/charts/media/image1.png')).toEqual(charts);
+  });
+
+  it('resolves lazily indexed media stored outside ppt/media once per entry', async () => {
+    const svgBytes = new Uint8Array([0x3c, 0x73, 0x76, 0x67, 0x2f, 0x3e]);
+    const zipFiles = mockLoadedZipWithoutPrivateSizes({
+      '[Content_Types].xml': '<Types />',
+      'ppt/presentation.xml': '<p:presentation />',
+      'ppt/_rels/presentation.xml.rels': '<Relationships />',
+      'ppt/slides/media/image1.svg': svgBytes,
+    });
+
+    const files = await parseZipLazyMedia(new ArrayBuffer(0));
+
+    const first = await files.mediaResolver!.resolve('media/image1.svg');
+    const second = await files.mediaResolver!.resolve('media/image1.svg');
+
+    expect(first?.data).toEqual(svgBytes);
+    expect(second?.mediaPath).toBe(first?.mediaPath);
+    expect(zipFiles['ppt/slides/media/image1.svg'].async).toHaveBeenCalledTimes(1);
+    expect(files.mediaResolver!.loadedCount).toBe(1);
+  });
+
   it('deduplicates concurrent lazy media reads for the same target', async () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
     const zipFiles = mockLoadedZipWithoutPrivateSizes({
