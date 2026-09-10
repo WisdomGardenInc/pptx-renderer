@@ -964,9 +964,9 @@ function renderEmf(
     case 'pdf':
       return renderEmfPdf(content.data, wrapper, node, ctx, mediaPath);
     case 'bitmap':
-      return renderEmfBitmap(content.imageData, wrapper, ctx, mediaPath);
+      return renderEmfBitmap(content.imageData, node, wrapper, ctx, mediaPath);
     case 'vector':
-      renderEmfVector(content.image, wrapper, ctx, mediaPath);
+      renderEmfVector(content.image, node, wrapper, ctx, mediaPath);
       break;
     case 'empty':
       // Render nothing — transparent placeholder
@@ -993,7 +993,7 @@ function renderEmfPdf(
   const cacheKey = `${mediaPath}:emf-pdf`;
   const cached = ctx.mediaUrlCache.get(cacheKey);
   if (cached) {
-    wrapper.appendChild(createFillImage(cached));
+    renderImageUrl(node, ctx, wrapper, cached);
     return;
   }
 
@@ -1007,10 +1007,10 @@ function renderEmfPdf(
       const existing = ctx.mediaUrlCache.get(cacheKey);
       if (existing) {
         URL.revokeObjectURL(url);
-        wrapper.appendChild(createFillImage(existing));
+        renderImageUrl(node, ctx, wrapper, existing);
       } else {
         ctx.mediaUrlCache.set(cacheKey, url);
-        wrapper.appendChild(createFillImage(url));
+        renderImageUrl(node, ctx, wrapper, url);
       }
     })
     .catch(() => {
@@ -1025,6 +1025,7 @@ function renderEmfPdf(
  */
 function renderEmfVector(
   image: EmfVectorImage,
+  node: PicNodeData,
   wrapper: HTMLElement,
   ctx: RenderContext,
   mediaPath: string,
@@ -1036,7 +1037,7 @@ function renderEmfVector(
     url = URL.createObjectURL(blob);
     ctx.mediaUrlCache.set(cacheKey, url);
   }
-  wrapper.appendChild(createFillImage(url));
+  renderImageUrl(node, ctx, wrapper, url);
 }
 
 /**
@@ -1044,6 +1045,7 @@ function renderEmfVector(
  */
 function renderEmfBitmap(
   imageData: ImageData,
+  node: PicNodeData,
   wrapper: HTMLElement,
   ctx: RenderContext,
   mediaPath: string,
@@ -1051,7 +1053,7 @@ function renderEmfBitmap(
   const cacheKey = `${mediaPath}:emf-bitmap`;
   const cached = ctx.mediaUrlCache.get(cacheKey);
   if (cached) {
-    wrapper.appendChild(createFillImage(cached));
+    renderImageUrl(node, ctx, wrapper, cached);
     return;
   }
 
@@ -1067,7 +1069,7 @@ function renderEmfBitmap(
       if (blob && !ctx.signal?.aborted) {
         const url = ctx.mediaUrlCache.get(cacheKey) ?? URL.createObjectURL(blob);
         ctx.mediaUrlCache.set(cacheKey, url);
-        wrapper.appendChild(createFillImage(url));
+        renderImageUrl(node, ctx, wrapper, url);
       }
       resolve();
     }, 'image/png');

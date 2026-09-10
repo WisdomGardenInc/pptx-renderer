@@ -3276,6 +3276,33 @@ describe('renderImage', () => {
       spy.mockRestore();
     });
 
+    it('applies the blipFill source crop to a vector EMF', async () => {
+      // A cropped band (`a:srcRect`) stretched to its frame only keeps its
+      // proportions if the crop is honoured; without it the artwork is squashed.
+      const emfModule = await import('../../../src/utils/emfParser');
+      const spy = vi.spyOn(emfModule, 'parseEmfContent').mockReturnValue({
+        type: 'vector',
+        image: { x: 0, y: 0, width: 1333, height: 534, paths: [] },
+      });
+
+      const ctx = createEmfCtx();
+      const node = createPicNode({
+        blipEmbed: 'rId1',
+        size: { w: 1280, h: 258 },
+        crop: { top: 0.49758, right: 0, bottom: 0, left: 0 },
+      });
+      const img = renderImage(node, ctx).querySelector('img') as HTMLImageElement;
+
+      expect(img).not.toBeNull();
+      // Visible height is 50.242% of the source, so the image is scaled up to
+      // ~199% and shifted so the kept band fills the frame.
+      const scale = 1 / (1 - 0.49758);
+      expect(Number.parseFloat(img.style.height)).toBeCloseTo(258 * scale, 1);
+      expect(Number.parseFloat(img.style.marginTop)).toBeCloseTo(-0.49758 * scale * 258, 1);
+
+      spy.mockRestore();
+    });
+
     it('reuses the cached SVG blob URL for a repeated vector EMF', async () => {
       const emfModule = await import('../../../src/utils/emfParser');
       const spy = vi.spyOn(emfModule, 'parseEmfContent').mockReturnValue({
