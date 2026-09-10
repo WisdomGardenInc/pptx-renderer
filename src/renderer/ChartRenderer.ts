@@ -2593,6 +2593,7 @@ export function renderChart(node: ChartNodeData, ctx: RenderContext): HTMLElemen
       sizeObserver?.disconnect();
       ctx.signal?.removeEventListener('abort', cancel);
       if (!ctx.signal?.aborted && chartDiv.isConnected) {
+        reserveSpaceForBottomLegend(option, chartDiv, customLegend);
         initChart(chartDiv, option, chartSet, ctx.signal);
       }
       resolve();
@@ -2632,6 +2633,44 @@ export function renderChart(node: ChartNodeData, ctx: RenderContext): HTMLElemen
   ctx.asyncTasks?.push(chartReady);
 
   return wrapper;
+}
+
+/** Breathing room between the value-axis labels and the legend below them. */
+const BOTTOM_LEGEND_GAP_PX = 4;
+
+/**
+ * Keep the plot clear of a bottom legend.
+ *
+ * The legend is drawn as a DOM overlay, so ECharts does not know it is there and
+ * `grid.bottom` is only a guess — a constant tuned for small legend text, which
+ * larger axis/legend text overruns until the legend sits on the axis labels. Once
+ * the wrapper is laid out the overlay can simply be measured.
+ *
+ * Exported for unit testing.
+ */
+export function reserveSpaceForBottomLegend(
+  option: EChartsTypes.EChartsOption,
+  chartDiv: HTMLElement,
+  legendOverlay: HTMLElement | null,
+): void {
+  // Only overlays anchored to the bottom edge compete with the axis labels.
+  if (!legendOverlay || !legendOverlay.style.bottom) return;
+
+  const grid = (Array.isArray(option.grid) ? option.grid[0] : option.grid) as
+    | { bottom?: unknown }
+    | undefined;
+  if (!grid || typeof grid.bottom !== 'number') return;
+
+  const chartRect = chartDiv.getBoundingClientRect();
+  const legendRect = legendOverlay.getBoundingClientRect();
+  // No layout yet (jsdom, display:none) — keep the constant.
+  if (legendRect.height === 0 || chartRect.height === 0) return;
+
+  const needed = chartRect.bottom - legendRect.top + BOTTOM_LEGEND_GAP_PX;
+  // Never let a tall legend squeeze the plot away — but only cap what this adds,
+  // so a deliberately large reserve from the option survives untouched.
+  const maxReserve = Math.max(grid.bottom, chartRect.height * 0.4);
+  grid.bottom = Math.min(Math.max(grid.bottom, needed), maxReserve);
 }
 
 /** Actually create ECharts instance, set option, and wire up resize + dispose. */
