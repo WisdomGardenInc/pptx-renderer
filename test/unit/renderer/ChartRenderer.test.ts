@@ -5333,6 +5333,70 @@ describe('ChartRenderer', () => {
       expect(series[0].symbolSize([0, 0, 25])).toBeCloseTo(120, 3);
     });
 
+    it('paints a picture-filled bubble as an image symbol, not a pattern fill', () => {
+      // A canvas pattern is anchored to the canvas, not to a symbol that moves
+      // with its data point, so a bubble filled with one lands on a transparent
+      // part of the artwork and disappears. ECharts image symbols scale to
+      // symbolSize, which is exactly what a `stretch` picture fill asks for.
+      const ctx = createMockRenderContext();
+      ctx.partPath = 'ppt/charts/chart1.xml';
+      ctx.presentation.media.set('ppt/media/image18.png', new Uint8Array([0x89, 0x50]));
+      ctx.presentation.chartRels = new Map([
+        [
+          'ppt/charts/chart1.xml',
+          new Map([
+            [
+              'rId1',
+              {
+                type: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
+                target: '../media/image18.png',
+              },
+            ],
+          ]),
+        ],
+      ]);
+
+      const xml = `
+        <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+                      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                      xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <c:chart>
+            <c:plotArea>
+              <c:bubbleChart>
+                <c:ser>
+                  <c:idx val="0"/><c:order val="0"/>
+                  <c:spPr>
+                    <a:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>
+                    <a:ln><a:noFill/></a:ln>
+                  </c:spPr>
+                  <c:xVal>
+                    <c:numRef><c:numCache><c:ptCount val="1"/>
+                      <c:pt idx="0"><c:v>1</c:v></c:pt>
+                    </c:numCache></c:numRef>
+                  </c:xVal>
+                  <c:yVal>
+                    <c:numRef><c:numCache><c:ptCount val="1"/>
+                      <c:pt idx="0"><c:v>10</c:v></c:pt>
+                    </c:numCache></c:numRef>
+                  </c:yVal>
+                  <c:bubbleSize>
+                    <c:numRef><c:numCache><c:ptCount val="1"/>
+                      <c:pt idx="0"><c:v>5</c:v></c:pt>
+                    </c:numCache></c:numRef>
+                  </c:bubbleSize>
+                </c:ser>
+              </c:bubbleChart>
+            </c:plotArea>
+          </c:chart>
+        </c:chartSpace>`;
+
+      const { option } = parseChartXml(parseXml(xml), ctx, 'ppt/charts/chart1.xml');
+      const series = option.series as any[];
+      expect(series[0].symbol).toMatch(/^image:\/\/blob:/);
+      // The pattern must not also be applied as a fill.
+      expect(series[0].itemStyle).toBeUndefined();
+    });
+
     it('honors explicit bubbleScale=0 instead of falling back to default scale', () => {
       const xml = `
         <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"

@@ -1,16 +1,19 @@
 /**
- * Geometry for OOXML `stack` picture fills on bar and column series.
+ * Geometry for OOXML picture fills (`a:blipFill`) on bar and column series.
  *
- * PowerPoint lays a stacked picture along the bar: the picture is scaled so the
- * edge across the bar matches the bar's thickness and anchored at the bar's base,
- * so a strip of motifs reads as whole motifs the size of the bar. Which edge that
- * is depends on the bar direction — decks pair horizontal bars with a wide strip
- * and columns with a tall one. An ECharts pattern is shape-independent:
- * it tiles at the image's natural pixel size from the canvas origin, which both
- * crops the artwork and lands at a different phase on every bar.
+ * PowerPoint fits the picture to the bar. `c:pictureFormat` says how: `stretch`
+ * (the default) scales one copy over it, while `stack`/`stackScale` tile the
+ * picture along it, scaled so the edge across the bar matches its thickness —
+ * decks pair horizontal bars with a wide strip and columns with a tall one, so
+ * which edge that is follows the bar direction.
  *
- * Both corrections need the laid-out bar rectangles, so they are applied after
- * the chart's first render, as a per-data-point pattern transform.
+ * An ECharts pattern is shape-independent: it tiles at the image's natural pixel
+ * size from the canvas origin, cropping the artwork at an arbitrary phase on
+ * every bar. Bar rectangles only exist after layout, so this runs once the chart
+ * has rendered and rewrites each data point with its own pattern transform.
+ *
+ * Bubble series take a different route: their fill becomes an ECharts image
+ * symbol, which already scales to the bubble.
  */
 
 import type * as EChartsTypes from 'echarts';
@@ -30,8 +33,8 @@ export interface PicturePattern {
 
 type SeriesRecord = Record<string, unknown>;
 
-/** Charts past this many bars keep the plain tiling; per-point patterns would not pay off. */
-const MAX_PATTERNED_BARS = 2000;
+/** Charts past this many marks keep the plain tiling; per-point patterns would not pay off. */
+const MAX_PATTERNED_POINTS = 2000;
 
 export function isPicturePattern(value: unknown): value is PicturePattern {
   if (!value || typeof value !== 'object') return false;
@@ -40,13 +43,6 @@ export function isPicturePattern(value: unknown): value is PicturePattern {
     typeof candidate.image === 'string' &&
     (candidate.repeat === 'repeat' || candidate.repeat === 'no-repeat')
   );
-}
-
-/** Numeric value of a data point, which may be a bare number or `{ value }`. */
-function pointValue(point: unknown): number | undefined {
-  const raw =
-    point && typeof point === 'object' ? (point as { value?: unknown }).value : (point as unknown);
-  return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
 }
 
 /** Read an ECharts `'13%'`-style ratio, defaulting when absent or malformed. */
@@ -88,9 +84,12 @@ export function computeBarBandLayout(
   if (!(thickness > 0)) return undefined;
 
   const step = thickness * (1 + barGapRatio);
-  const groupSpan = thickness * slots;
-  return { thickness, step, firstOffset: -groupSpan / 2 };
+  return { thickness, step, firstOffset: (-thickness * slots) / 2 };
 }
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 function asSeriesArray(option: EChartsTypes.EChartsOption): SeriesRecord[] {
   const series = option.series;
@@ -101,6 +100,34 @@ function asSeriesArray(option: EChartsTypes.EChartsOption): SeriesRecord[] {
 function seriesPattern(series: SeriesRecord): PicturePattern | undefined {
   const itemStyle = series.itemStyle as { color?: unknown } | undefined;
   return isPicturePattern(itemStyle?.color) ? itemStyle.color : undefined;
+}
+
+function seriesData(series: SeriesRecord): unknown[] {
+  return Array.isArray(series.data) ? series.data : [];
+}
+
+/** Value of a data point, which may be bare or wrapped as `{ value }`. */
+function pointValue(point: unknown): unknown {
+  return point && typeof point === 'object' && !Array.isArray(point)
+    ? (point as { value?: unknown }).value
+    : point;
+}
+
+/**
+ * Attach a pattern to a data point, unless it already carries its own color
+ * (a `c:dPt` override, negative-value inversion, or `varyColors`).
+ */
+function withPattern(point: unknown, tile: PicturePattern): unknown | undefined {
+  const wrapper =
+    point && typeof point === 'object' && !Array.isArray(point)
+      ? (point as Record<string, unknown>)
+      : undefined;
+  const existingStyle = wrapper?.itemStyle as { color?: unknown } | undefined;
+  if (existingStyle && existingStyle.color !== undefined) return undefined;
+
+  return wrapper
+    ? { ...wrapper, itemStyle: { ...existingStyle, color: tile } }
+    : { value: point, itemStyle: { color: tile } };
 }
 
 interface NaturalSize {
@@ -123,22 +150,129 @@ function loadNaturalSize(url: string): Promise<NaturalSize | undefined> {
   });
 }
 
-/** Category-axis pixel positions, or undefined when the chart cannot be probed. */
-function categoryBandPx(
-  chart: EChartsType,
-  axisKey: 'xAxisIndex' | 'yAxisIndex',
-  categoryCount: number,
-): number | undefined {
-  if (categoryCount < 2) return undefined;
-  const first = chart.convertToPixel({ [axisKey]: 0 }, 0) as number | undefined;
-  const second = chart.convertToPixel({ [axisKey]: 0 }, 1) as number | undefined;
-  if (typeof first !== 'number' || typeof second !== 'number') return undefined;
-  const band = Math.abs(second - first);
-  return band > 0 ? band : undefined;
+// ---------------------------------------------------------------------------
+// Bar and column series
+// ---------------------------------------------------------------------------
+
+interface BarContext extends BarBandLayout {
+  categoryAxisKey: 'xAxisIndex' | 'yAxisIndex';
+  valueAxisKey: 'xAxisIndex' | 'yAxisIndex';
+  categoryOnY: boolean;
+  /** Pixel of the value axis zero line, where bars start. */
+  basePx: number;
+  /** Bar series in draw order, for slot offsets. */
+  order: SeriesRecord[];
+  stacked: boolean;
 }
 
+function measureBarContext(
+  chart: EChartsType,
+  option: EChartsTypes.EChartsOption,
+  barSeries: SeriesRecord[],
+): BarContext | undefined {
+  if (barSeries.length === 0) return undefined;
+
+  const categoryOnY = (option.yAxis as { type?: string } | undefined)?.type === 'category';
+  const categoryAxisKey = categoryOnY ? 'yAxisIndex' : 'xAxisIndex';
+  const valueAxisKey = categoryOnY ? 'xAxisIndex' : 'yAxisIndex';
+
+  const categoryCount = Math.max(...barSeries.map((series) => seriesData(series).length));
+  // Two categories are the minimum that reveals the band width.
+  if (categoryCount < 2) return undefined;
+
+  const first = chart.convertToPixel({ [categoryAxisKey]: 0 }, 0) as number | undefined;
+  const second = chart.convertToPixel({ [categoryAxisKey]: 0 }, 1) as number | undefined;
+  if (typeof first !== 'number' || typeof second !== 'number') return undefined;
+  const band = Math.abs(second - first);
+
+  // Stacked series share one slot; clustered series each get their own.
+  const stacked = barSeries.some((series) => typeof series.stack === 'string');
+  const layout = computeBarBandLayout(
+    band,
+    stacked ? 1 : barSeries.length,
+    parsePercentRatio(barSeries[0].barCategoryGap, 0),
+    parsePercentRatio(barSeries[0].barGap, 0),
+  );
+  if (!layout) return undefined;
+
+  const basePx = chart.convertToPixel({ [valueAxisKey]: 0 }, 0) as number | undefined;
+  if (typeof basePx !== 'number') return undefined;
+
+  return {
+    ...layout,
+    categoryAxisKey,
+    valueAxisKey,
+    categoryOnY,
+    basePx,
+    order: barSeries,
+    stacked,
+  };
+}
+
+function patchBarSeries(
+  chart: EChartsType,
+  series: SeriesRecord,
+  pattern: PicturePattern,
+  natural: NaturalSize,
+  bar: BarContext,
+): unknown[] | undefined {
+  const tiled = pattern.pictureFormat === 'stack' || pattern.pictureFormat === 'stackScale';
+  // Tiled: the picture runs along the bar, so its other edge spans the thickness.
+  const acrossBar = bar.categoryOnY ? natural.height : natural.width;
+  const tileScale = bar.thickness / acrossBar;
+  const slot = bar.stacked ? 0 : bar.order.indexOf(series);
+  const leadingEdge = bar.firstOffset + slot * bar.step;
+
+  let patched = false;
+  const next = seriesData(series).map((point, index) => {
+    const centre = chart.convertToPixel({ [bar.categoryAxisKey]: 0 }, index) as number | undefined;
+    if (typeof centre !== 'number') return point;
+    const crossStart = centre + leadingEdge;
+
+    let tile: PicturePattern;
+    if (tiled) {
+      tile = {
+        ...pattern,
+        repeat: 'repeat',
+        scaleX: tileScale,
+        scaleY: tileScale,
+        x: bar.categoryOnY ? bar.basePx : crossStart,
+        y: bar.categoryOnY ? crossStart : bar.basePx,
+      };
+    } else {
+      // Stretched: one copy covering this bar's own rectangle.
+      const raw = pointValue(point);
+      if (typeof raw !== 'number' || !Number.isFinite(raw)) return point;
+      const endPx = chart.convertToPixel({ [bar.valueAxisKey]: 0 }, raw) as number | undefined;
+      if (typeof endPx !== 'number') return point;
+      const alongSpan = Math.abs(endPx - bar.basePx);
+      if (!(alongSpan > 0)) return point;
+
+      tile = {
+        ...pattern,
+        repeat: 'no-repeat',
+        scaleX: (bar.categoryOnY ? alongSpan : bar.thickness) / natural.width,
+        scaleY: (bar.categoryOnY ? bar.thickness : alongSpan) / natural.height,
+        x: bar.categoryOnY ? Math.min(bar.basePx, endPx) : crossStart,
+        y: bar.categoryOnY ? crossStart : Math.min(bar.basePx, endPx),
+      };
+    }
+
+    const replaced = withPattern(point, tile);
+    if (!replaced) return point;
+    patched = true;
+    return replaced;
+  });
+
+  return patched ? next : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
 /**
- * Rescale and anchor every `stack` picture fill to the bars it paints.
+ * Rescale and anchor every picture fill to the bar it paints.
  *
  * Resolves once the option has been patched, or immediately when the chart has
  * no picture-filled bars or cannot be measured.
@@ -149,110 +283,33 @@ export async function applyBarPictureFillGeometry(
 ): Promise<void> {
   const seriesList = asSeriesArray(option);
   const barSeries = seriesList.filter((series) => series.type === 'bar');
-  if (barSeries.length === 0) return;
-  if (!barSeries.some(seriesPattern)) return;
+  const patternedBars = barSeries.filter(seriesPattern);
+  if (patternedBars.length === 0) return;
 
-  const categoryOnY = (option.yAxis as { type?: string } | undefined)?.type === 'category';
-  const categoryAxisKey = categoryOnY ? 'yAxisIndex' : 'xAxisIndex';
-  const valueAxisKey = categoryOnY ? 'xAxisIndex' : 'yAxisIndex';
+  const pointCount = patternedBars.reduce((sum, series) => sum + seriesData(series).length, 0);
+  if (pointCount > MAX_PATTERNED_POINTS) return;
 
-  const categoryCount = Math.max(
-    ...barSeries.map((series) => (Array.isArray(series.data) ? series.data.length : 0)),
-  );
-  if (categoryCount * barSeries.length > MAX_PATTERNED_BARS) return;
-
-  const band = categoryBandPx(chart, categoryAxisKey, categoryCount);
-  if (band === undefined) return;
-
-  // Stacked series share one slot; clustered series each get their own.
-  const stacked = barSeries.some((series) => typeof series.stack === 'string');
-  const slotCount = stacked ? 1 : barSeries.length;
-  const layout = computeBarBandLayout(
-    band,
-    slotCount,
-    parsePercentRatio(barSeries[0].barCategoryGap, 0),
-    parsePercentRatio(barSeries[0].barGap, 0),
-  );
-  if (!layout) return;
-
-  // Bars grow from the value axis zero line; that edge anchors the tiling.
-  const basePx = chart.convertToPixel({ [valueAxisKey]: 0 }, 0) as number | undefined;
-  if (typeof basePx !== 'number') return;
+  const barContext = measureBarContext(chart, option, barSeries);
+  if (!barContext) return;
 
   const sizes = new Map<string, NaturalSize | undefined>();
-  for (const series of barSeries) {
-    const pattern = seriesPattern(series);
-    if (pattern && !sizes.has(pattern.image)) {
-      sizes.set(pattern.image, await loadNaturalSize(pattern.image));
-    }
+  for (const series of patternedBars) {
+    const image = seriesPattern(series)!.image;
+    if (!sizes.has(image)) sizes.set(image, await loadNaturalSize(image));
   }
 
   let patched = false;
   const nextSeries = seriesList.map((series) => {
     const pattern = seriesPattern(series);
     if (!pattern || series.type !== 'bar') return series;
-
     const natural = sizes.get(pattern.image);
     if (!natural) return series;
 
-    const tiled = pattern.pictureFormat === 'stack' || pattern.pictureFormat === 'stackScale';
-    // Tiled: the picture runs along the bar, so its other edge spans the thickness.
-    const acrossBar = categoryOnY ? natural.height : natural.width;
-    const tileScale = layout.thickness / acrossBar;
-    const slot = stacked ? 0 : barSeries.indexOf(series);
-    const leadingEdge = layout.firstOffset + slot * layout.step;
-    const data = Array.isArray(series.data) ? series.data : [];
+    const data = patchBarSeries(chart, series, pattern, natural, barContext);
+    if (!data) return series;
 
-    const nextData = data.map((point, index) => {
-      const centre = chart.convertToPixel({ [categoryAxisKey]: 0 }, index) as number | undefined;
-      if (typeof centre !== 'number') return point;
-
-      const crossStart = centre + leadingEdge;
-      let tile: PicturePattern;
-
-      if (tiled) {
-        tile = {
-          ...pattern,
-          repeat: 'repeat',
-          scaleX: tileScale,
-          scaleY: tileScale,
-          x: categoryOnY ? basePx : crossStart,
-          y: categoryOnY ? crossStart : basePx,
-        };
-      } else {
-        // Stretched: one copy covering this bar's own rectangle.
-        const value = pointValue(point);
-        if (value === undefined) return point;
-        const endPx = chart.convertToPixel({ [valueAxisKey]: 0 }, value) as number | undefined;
-        if (typeof endPx !== 'number') return point;
-        const alongStart = Math.min(basePx, endPx);
-        const alongSpan = Math.abs(endPx - basePx);
-        if (!(alongSpan > 0)) return point;
-
-        tile = {
-          ...pattern,
-          repeat: 'no-repeat',
-          scaleX: (categoryOnY ? alongSpan : layout.thickness) / natural.width,
-          scaleY: (categoryOnY ? layout.thickness : alongSpan) / natural.height,
-          x: categoryOnY ? alongStart : crossStart,
-          y: categoryOnY ? crossStart : alongStart,
-        };
-      }
-
-      const existing =
-        point && typeof point === 'object' ? (point as Record<string, unknown>) : undefined;
-      const existingStyle = existing?.itemStyle as { color?: unknown } | undefined;
-      // A data point with its own explicit color (dPt override, negative-value
-      // inversion, varyColors) keeps it.
-      if (existingStyle && existingStyle.color !== undefined) return point;
-
-      patched = true;
-      return existing
-        ? { ...existing, itemStyle: { ...existingStyle, color: tile } }
-        : { value: point, itemStyle: { color: tile } };
-    });
-
-    return { ...series, data: nextData };
+    patched = true;
+    return { ...series, data };
   });
 
   if (!patched) return;

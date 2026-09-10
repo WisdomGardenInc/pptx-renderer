@@ -6,7 +6,7 @@ import type * as EChartsTypes from 'echarts';
 import type { EChartsType } from 'echarts/core';
 import { ChartNodeData } from '../model/nodes/ChartNode';
 import { RenderContext } from './RenderContext';
-import { applyBarPictureFillGeometry } from './chart/pictureFill';
+import { applyBarPictureFillGeometry, isPicturePattern } from './chart/pictureFill';
 import { SafeXmlNode } from '../parser/XmlParser';
 import { hexToRgb, hslToRgb, rgbToHex, rgbToHsl } from '../utils/color';
 import { applyAxisInfo, getChartAxisIds, parseAxes, parseScatterAxes } from './chart/axes';
@@ -1713,15 +1713,20 @@ function buildBubbleChartOption(
 
   const series: EChartsTypes.ScatterSeriesOption[] = seriesArr.map((s) => {
     const data = buildXYData(s, getDispBlanksAs(chartNode), true);
+    // A picture-filled bubble is an image symbol, not a pattern fill: ECharts
+    // scales the image to symbolSize, which is exactly the OOXML `stretch` a
+    // bubble series gets, and a canvas pattern cannot follow a moving symbol.
+    const pictureFill = isPicturePattern(s.colorHex) ? s.colorHex : undefined;
     return {
       type: 'scatter' as const,
       name: s.name,
       data,
+      ...(pictureFill ? { symbol: `image://${pictureFill.image}` } : {}),
       symbolSize: (val: number[]) => {
         const bubbleValue = Math.max(Number(val[2]) || 0, 0);
         return Math.sqrt(bubbleValue / safeMaxBubbleSize) * maxBubbleDiameter;
       },
-      itemStyle: s.colorHex ? { color: s.colorHex } : undefined,
+      itemStyle: !pictureFill && s.colorHex ? { color: s.colorHex } : undefined,
     };
   });
 
