@@ -42,8 +42,8 @@ const MINI_PDF = new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog>>end
  */
 function buildEmfHeader(headerSize = 108): Uint8Array {
   const buf = new Uint8Array(headerSize);
-  writeU32(buf, 0, EMR_HEADER);    // type
-  writeU32(buf, 4, headerSize);     // size
+  writeU32(buf, 0, EMR_HEADER); // type
+  writeU32(buf, 4, headerSize); // size
   writeU32(buf, 40, EMF_SIGNATURE); // signature " EMF"
   return buf;
 }
@@ -79,19 +79,19 @@ function buildMultiformatsPdfComment(pdfData: Uint8Array): Uint8Array {
   const paddedSize = Math.ceil(recordSize / 4) * 4;
   const buf = new Uint8Array(paddedSize);
 
-  writeU32(buf, 0, EMR_COMMENT);         // type
-  writeU32(buf, 4, paddedSize);           // size
-  writeU32(buf, 8, paddedSize - 8);       // cbData
-  writeU32(buf, 12, GDIC_ID);            // commentIdentifier
-  writeU32(buf, 16, MULTIFORMATS_TYPE);   // publicCommentIdentifier
+  writeU32(buf, 0, EMR_COMMENT); // type
+  writeU32(buf, 4, paddedSize); // size
+  writeU32(buf, 8, paddedSize - 8); // cbData
+  writeU32(buf, 12, GDIC_ID); // commentIdentifier
+  writeU32(buf, 16, MULTIFORMATS_TYPE); // publicCommentIdentifier
   // outputRect at +20..+35: leave as zeros
-  writeU32(buf, 36, 1);                  // countFormats = 1
+  writeU32(buf, 36, 1); // countFormats = 1
 
   // Format descriptor at +40
-  writeU32(buf, 40, 0x50444620);          // signature = "PDF " (little-endian)
-  writeU32(buf, 44, 1);                   // version
-  writeU32(buf, 48, formatDataSize);      // cbData
-  writeU32(buf, 52, offData);             // offData (relative to record start)
+  writeU32(buf, 40, 0x50444620); // signature = "PDF " (little-endian)
+  writeU32(buf, 44, 1); // version
+  writeU32(buf, 48, formatDataSize); // cbData
+  writeU32(buf, 52, offData); // offData (relative to record start)
 
   // Format data at +56: preamble + PDF
   buf.set(pdfData, offData + preambleSize);
@@ -185,12 +185,12 @@ function buildStretchDibitsRecord(width: number, height: number, bpp: 24 | 32): 
   writeU32(buf, 60, bitmapDataSize);
 
   // BITMAPINFOHEADER at offBmiSrc
-  writeU32(buf, offBmiSrc, 40);          // biSize
-  writeI32(buf, offBmiSrc + 4, width);   // biWidth
-  writeI32(buf, offBmiSrc + 8, height);  // biHeight (positive = bottom-up)
-  writeU16(buf, offBmiSrc + 12, 1);      // biPlanes
-  writeU16(buf, offBmiSrc + 14, bpp);    // biBitCount
-  writeU32(buf, offBmiSrc + 16, 0);      // biCompression = BI_RGB
+  writeU32(buf, offBmiSrc, 40); // biSize
+  writeI32(buf, offBmiSrc + 4, width); // biWidth
+  writeI32(buf, offBmiSrc + 8, height); // biHeight (positive = bottom-up)
+  writeU16(buf, offBmiSrc + 12, 1); // biPlanes
+  writeU16(buf, offBmiSrc + 14, bpp); // biBitCount
+  writeU32(buf, offBmiSrc + 16, 0); // biCompression = BI_RGB
 
   // Bitmap pixel data: fill with a recognizable pattern
   // Row 0 (bottom in bottom-up): red, Row 1: green, etc.
@@ -200,7 +200,7 @@ function buildStretchDibitsRecord(width: number, height: number, bpp: 24 | 32): 
       // BGR format
       buf[idx + 0] = (y * 50) & 0xff; // B
       buf[idx + 1] = (x * 50) & 0xff; // G
-      buf[idx + 2] = 255;              // R
+      buf[idx + 2] = 255; // R
       if (bpp === 32) buf[idx + 3] = 200; // A
     }
   }
@@ -212,7 +212,11 @@ function buildStretchDibitsRecord(width: number, height: number, bpp: 24 | 32): 
  * Build an EMR_STRETCHDIBITS record whose header declares a large bitmap but
  * whose pixel payload is intentionally too short for those dimensions.
  */
-function buildTruncatedStretchDibitsRecord(width: number, height: number, bpp: 24 | 32): Uint8Array {
+function buildTruncatedStretchDibitsRecord(
+  width: number,
+  height: number,
+  bpp: 24 | 32,
+): Uint8Array {
   const bmiSize = 40;
   const offBmiSrc = 80;
   const offBitsSrc = offBmiSrc + bmiSize;
@@ -437,7 +441,9 @@ describe('parseEmfContent', () => {
 
     it('handles top-down row order (negative biHeight)', () => {
       // Build a custom STRETCHDIBITS with negative height
-      const width = 2, height = 2, bpp = 24;
+      const width = 2,
+        height = 2,
+        bpp = 24;
       const bytesPerPixel = 3;
       const rowStride = Math.ceil((width * bytesPerPixel) / 4) * 4;
       const bitmapDataSize = rowStride * height;
@@ -462,8 +468,8 @@ describe('parseEmfContent', () => {
       writeU32(rec, offBmiSrc + 16, 0);
 
       // Row 0: B=0, G=0, R=100
-      rec[offBitsSrc + 0] = 0;   // B
-      rec[offBitsSrc + 1] = 0;   // G
+      rec[offBitsSrc + 0] = 0; // B
+      rec[offBitsSrc + 1] = 0; // G
       rec[offBitsSrc + 2] = 100; // R
 
       const emf = concat(buildEmfHeader(), rec, buildEofRecord());
@@ -472,8 +478,8 @@ describe('parseEmfContent', () => {
       if (result.type === 'bitmap') {
         // Top-down: row 0 in DIB = row 0 in ImageData
         expect(result.imageData.data[0]).toBe(100); // R
-        expect(result.imageData.data[1]).toBe(0);   // G
-        expect(result.imageData.data[2]).toBe(0);    // B
+        expect(result.imageData.data[1]).toBe(0); // G
+        expect(result.imageData.data[2]).toBe(0); // B
       }
     });
   });
@@ -504,11 +510,67 @@ describe('parseEmfContent', () => {
       const drawRecord = new Uint8Array(12);
       writeU32(drawRecord, 0, 17); // type
       writeU32(drawRecord, 4, 12); // size
-      writeU32(drawRecord, 8, 1);  // data
+      writeU32(drawRecord, 8, 1); // data
 
       const emf = concat(buildEmfHeader(), drawRecord, buildEofRecord());
       const result = parseEmfContent(emf);
       expect(result.type).toBe('unsupported');
+    });
+  });
+
+  describe('vector fallback', () => {
+    /** Header carrying the bounds that the vector converter needs for its viewBox. */
+    function buildBoundedHeader(): Uint8Array {
+      const buf = buildEmfHeader(88);
+      writeI32(buf, 8, 0); // rclBounds left
+      writeI32(buf, 12, 0); // top
+      writeI32(buf, 16, 40); // right
+      writeI32(buf, 20, 20); // bottom
+      return buf;
+    }
+
+    /** EMR_POLYGON16 with a solid brush selected — the simplest paintable drawing. */
+    function buildFilledTriangle(): Uint8Array {
+      const brush = new Uint8Array(24);
+      writeU32(brush, 0, 39); // EMR_CREATEBRUSHINDIRECT
+      writeU32(brush, 4, 24);
+      writeU32(brush, 8, 1); // handle
+      writeU32(brush, 12, 0); // BS_SOLID
+      writeU32(brush, 16, 0x0000ff); // COLORREF → #FF0000
+
+      const select = new Uint8Array(12);
+      writeU32(select, 0, 37); // EMR_SELECTOBJECT
+      writeU32(select, 4, 12);
+      writeU32(select, 8, 1);
+
+      const polygon = new Uint8Array(40);
+      writeU32(polygon, 0, 86); // EMR_POLYGON16
+      writeU32(polygon, 4, 40);
+      writeU32(polygon, 24, 3); // point count
+      const pts = [0, 0, 10, 0, 10, 10];
+      pts.forEach((v, i) => writeU16(polygon, 28 + i * 2, v));
+
+      return concat(brush, select, polygon);
+    }
+
+    it('converts a vector-only EMF into SVG geometry', () => {
+      const emf = concat(buildBoundedHeader(), buildFilledTriangle(), buildEofRecord());
+      const result = parseEmfContent(emf);
+      expect(result.type).toBe('vector');
+      if (result.type !== 'vector') return;
+      expect(result.image).toMatchObject({ x: 0, y: 0, width: 40, height: 20 });
+      expect(result.image.paths).toHaveLength(1);
+      expect(result.image.paths[0].fill).toBe('#FF0000');
+    });
+
+    it('prefers an embedded PDF over the vector fallback', () => {
+      const emf = concat(
+        buildBoundedHeader(),
+        buildFilledTriangle(),
+        buildMultiformatsPdfComment(MINI_PDF),
+        buildEofRecord(),
+      );
+      expect(parseEmfContent(emf).type).toBe('pdf');
     });
   });
 

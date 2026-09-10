@@ -58,8 +58,9 @@ Responsibilities:
 - Manage media object URL lifecycle (blob URLs tracked per-handle and per-viewer).
 - Handle internal/external navigation (with URL safety checks).
 - Expose external slide rendering, scaled thumbnail preview, and search highlight helpers.
-- Render common EMF fallback previews when the file contains embedded bitmap data or,
-  with optional `pdfjs` URLs, an embedded PDF preview.
+- Render common EMF fallback previews when the file contains embedded bitmap data,
+  a GDI path drawing convertible to SVG, or — with optional `pdfjs` URLs — an embedded
+  PDF preview.
 
 ### Async Resource Lifecycle
 
@@ -141,4 +142,5 @@ returned `SlideHandle` and must dispose it when the preview is no longer needed.
 
 - Full fidelity parity with Microsoft PowerPoint for every OOXML edge case.
 - Server-side rendering runtime in this repository.
-- Full EMF/WMF vector instruction rendering. EMF support is limited to fallback previews.
+- Full EMF/WMF vector instruction rendering. EMF support covers fallback previews plus
+  the path/polygon/brush subset of GDI records; text, blits, clipping and arcs are skipped.

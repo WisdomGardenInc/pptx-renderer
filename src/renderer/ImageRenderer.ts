@@ -14,6 +14,7 @@ import { isExternalTargetMode, RelEntry } from '../parser/RelParser';
 import { resolveColor, resolveFill, resolveLineStyle } from './StyleResolver';
 import { hexToRgb } from '../utils/color';
 import { parseEmfContent } from '../utils/emfParser';
+import { EmfVectorImage, emfVectorToSvg } from '../utils/emfVector';
 import { renderPdfToImage } from '../utils/pdfRenderer';
 import { emuToPx } from '../parser/units';
 import { SafeXmlNode } from '../parser/XmlParser';
@@ -964,6 +965,9 @@ function renderEmf(
       return renderEmfPdf(content.data, wrapper, node, ctx, mediaPath);
     case 'bitmap':
       return renderEmfBitmap(content.imageData, wrapper, ctx, mediaPath);
+    case 'vector':
+      renderEmfVector(content.image, wrapper, ctx, mediaPath);
+      break;
     case 'empty':
       // Render nothing — transparent placeholder
       break;
@@ -1014,6 +1018,25 @@ function renderEmfPdf(
     });
   ctx.asyncTasks?.push(task);
   return task;
+}
+
+/**
+ * Render a vector EMF by converting its GDI drawing records into an SVG image.
+ */
+function renderEmfVector(
+  image: EmfVectorImage,
+  wrapper: HTMLElement,
+  ctx: RenderContext,
+  mediaPath: string,
+): void {
+  const cacheKey = `${mediaPath}:emf-vector`;
+  let url = ctx.mediaUrlCache.get(cacheKey);
+  if (!url) {
+    const blob = new Blob([emfVectorToSvg(image)], { type: 'image/svg+xml' });
+    url = URL.createObjectURL(blob);
+    ctx.mediaUrlCache.set(cacheKey, url);
+  }
+  wrapper.appendChild(createFillImage(url));
 }
 
 /**

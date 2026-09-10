@@ -3242,6 +3242,56 @@ describe('renderImage', () => {
 
       spy.mockRestore();
     });
+
+    it('renders vector EMF content as an SVG blob image', async () => {
+      const emfModule = await import('../../../src/utils/emfParser');
+      const spy = vi.spyOn(emfModule, 'parseEmfContent').mockReturnValue({
+        type: 'vector',
+        image: {
+          x: 0,
+          y: 0,
+          width: 40,
+          height: 20,
+          paths: [
+            {
+              d: 'M0,0 L10,0 L10,10 Z',
+              fill: '#FF0000',
+              fillRule: 'nonzero',
+              stroke: 'none',
+              strokeWidth: 0,
+            },
+          ],
+        },
+      });
+
+      const ctx = createEmfCtx();
+      const node = createPicNode({ blipEmbed: 'rId1' });
+      const el = renderImage(node, ctx);
+
+      const img = el.querySelector('img') as HTMLImageElement;
+      expect(img).not.toBeNull();
+      expect(img.src.startsWith('blob:')).toBe(true);
+      expect(ctx.mediaUrlCache.get('ppt/media/image1.emf:emf-vector')).toBe(img.src);
+
+      spy.mockRestore();
+    });
+
+    it('reuses the cached SVG blob URL for a repeated vector EMF', async () => {
+      const emfModule = await import('../../../src/utils/emfParser');
+      const spy = vi.spyOn(emfModule, 'parseEmfContent').mockReturnValue({
+        type: 'vector',
+        image: { x: 0, y: 0, width: 40, height: 20, paths: [] },
+      });
+
+      const ctx = createEmfCtx();
+      ctx.mediaUrlCache.set('ppt/media/image1.emf:emf-vector', 'blob:cached-vector-url');
+
+      const node = createPicNode({ blipEmbed: 'rId1' });
+      const img = renderImage(node, ctx).querySelector('img') as HTMLImageElement;
+      expect(img.src).toContain('blob:cached-vector-url');
+
+      spy.mockRestore();
+    });
   });
 
   describe('EMF PDF rendering — renderEmfPdf', () => {

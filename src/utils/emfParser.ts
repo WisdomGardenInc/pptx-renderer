@@ -8,11 +8,17 @@
  *
  * EMF record format: each record is { type: u32, size: u32, ...data }
  * Records are walked sequentially until EOF record (type 14).
+ *
+ * Files with neither payload are plain vector drawings; those are handed to
+ * `parseEmfVector` and converted into SVG geometry.
  */
+
+import { EmfVectorImage, parseEmfVector } from './emfVector';
 
 export type EmfContent =
   | { type: 'pdf'; data: Uint8Array }
   | { type: 'bitmap'; imageData: ImageData }
+  | { type: 'vector'; image: EmfVectorImage }
   | { type: 'empty' }
   | { type: 'unsupported' };
 
@@ -83,6 +89,10 @@ export function parseEmfContent(data: Uint8Array): EmfContent {
   if (recordCount <= 2) {
     return { type: 'empty' };
   }
+
+  // No embedded raster payload — try to interpret the GDI drawing records.
+  const vector = parseEmfVector(data);
+  if (vector) return { type: 'vector', image: vector };
 
   return { type: 'unsupported' };
 }

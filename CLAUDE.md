@@ -117,7 +117,11 @@ Three-step: `schemeClr` → master `colorMap` remap (e.g. "tx1"→"dk1") → the
 
 ### What's NOT Supported
 
-3D effects, animations/transitions, equations, EMF/WMF images, pattern fills, shadow/reflection/glow, combo charts, secondary axes, embedded OLE objects, slide notes.
+3D effects, animations/transitions, equations, WMF images, pattern fills, shadow/reflection/glow, combo charts, secondary axes, embedded OLE objects, slide notes.
+
+EMF is partially supported: embedded PDF previews (via optional pdfjs-dist), embedded DIB
+bitmaps, and plain GDI path drawings converted to SVG by `src/utils/emfVector.ts`. Text
+output, bitmap blits, clipping regions and arc records are skipped.
 
 Notes:
 
