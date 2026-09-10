@@ -381,7 +381,7 @@ function appendShapeBlipImage(
   bounds: { w: number; h: number },
   blipUrl: string,
   beforeNode?: ChildNode | null,
-): void {
+): SVGImageElement {
   const clipId = `shape-clip-${++gradientIdCounter}`;
   const clipPath = document.createElementNS(svgNs, 'clipPath');
   clipPath.setAttribute('id', clipId);
@@ -390,7 +390,7 @@ function appendShapeBlipImage(
   clipPath.appendChild(clipPathPath);
   defs.appendChild(clipPath);
 
-  const image = document.createElementNS(svgNs, 'image');
+  const image = document.createElementNS(svgNs, 'image') as SVGImageElement;
   const placement = getShapeBlipImagePlacement(blipFill, bounds);
   image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', blipUrl);
   image.setAttribute('x', String(placement.x));
@@ -408,6 +408,7 @@ function appendShapeBlipImage(
   } else {
     svg.appendChild(image);
   }
+  return image;
 }
 
 // ---------------------------------------------------------------------------
@@ -1675,7 +1676,9 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
   // ---- Create SVG element ----
   let mainSvgNs: string | null = null;
   let mainDefs: SVGDefsElement | null = null;
-  let mainPath: SVGPathElement | null = null;
+  // Element the shape's effect filters attach to: the filled path, or the
+  // clipped image when the shape is picture-filled.
+  let mainPath: SVGElement | null = null;
   let mainSvgBounds: { w: number; h: number } | null = null;
   if (pathD) {
     const svgNs = 'http://www.w3.org/2000/svg';
@@ -1696,7 +1699,21 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
     // When shape has image fill (blipFill), render image clipped to path so complex graphics (e.g. slide 23 process) show
     if (blipUrl) {
       const defs = document.createElementNS(svgNs, 'defs');
-      appendShapeBlipImage(svgNs, svg, defs, blipFill, pathD, { w: svgW, h: svgH }, blipUrl);
+      const blipImage = appendShapeBlipImage(
+        svgNs,
+        svg,
+        defs,
+        blipFill,
+        pathD,
+        { w: svgW, h: svgH },
+        blipUrl,
+      );
+      // Effects follow the clipped artwork; a wrapper box-shadow would trace the
+      // shape's bounding rectangle instead of its geometry.
+      mainSvgNs = svgNs;
+      mainDefs = defs;
+      mainPath = blipImage;
+      mainSvgBounds = { w: svgW, h: svgH };
 
       const mainPathStrokeSuppressed = multiPaths && multiPaths[0]?.stroke === false;
       if (

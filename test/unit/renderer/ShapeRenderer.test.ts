@@ -4582,6 +4582,59 @@ describe('ShapeRenderer', () => {
     expect(Number(gradient!.getAttribute('y2'))).toBeCloseTo(shapeNode.size.h, 1);
   });
 
+  it('shadows a picture-filled shape along its geometry, not its bounding box', () => {
+    // A wrapper box-shadow traces the shape's rectangle. On a custom geometry —
+    // here a wave — that shows up as a straight line across the slide.
+    const xml = `
+      <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <p:nvSpPr><p:cNvPr id="206" name="Wave"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>
+          <a:custGeom>
+            <a:pathLst>
+              <a:path w="100" h="100">
+                <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+                <a:lnTo><a:pt x="100" y="0"/></a:lnTo>
+                <a:lnTo><a:pt x="100" y="100"/></a:lnTo>
+                <a:cubicBezTo>
+                  <a:pt x="60" y="60"/><a:pt x="40" y="40"/><a:pt x="0" y="0"/>
+                </a:cubicBezTo>
+                <a:close/>
+              </a:path>
+            </a:pathLst>
+          </a:custGeom>
+          <a:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>
+          <a:ln><a:noFill/></a:ln>
+          <a:effectLst>
+            <a:outerShdw blurRad="63500" sx="101000" sy="101000" algn="ctr" rotWithShape="0">
+              <a:prstClr val="black"><a:alpha val="40000"/></a:prstClr>
+            </a:outerShdw>
+          </a:effectLst>
+        </p:spPr>
+      </p:sp>
+    `;
+    const mockCtx = createMockRenderContext();
+    const ctx = createMockRenderContext({
+      slide: {
+        ...mockCtx.slide,
+        rels: new Map([['rId1', { type: 'image', target: '../media/image1.png' }]]),
+      },
+      presentation: {
+        ...mockCtx.presentation,
+        media: new Map([['ppt/media/image1.png', new Uint8Array([137, 80, 78, 71])]]),
+      },
+    });
+
+    const el = renderShape(parseShapeNode(parseXml(xml)), ctx);
+    const image = el.querySelector('svg image');
+
+    expect(el.style.boxShadow).toBe('');
+    expect(image?.getAttribute('filter')).toMatch(/^url\(#shape-shadow-/);
+    expect(el.querySelector('svg defs filter feDropShadow')).not.toBeNull();
+  });
+
   it('renders shape with blipFill (image fill) creates clipped image', () => {
     const xml = `
       <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
