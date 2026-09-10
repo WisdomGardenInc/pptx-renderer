@@ -2607,7 +2607,6 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
         const ownAnchor = bodyPr ? bodyPr.attr('anchor') : undefined;
         const fallbackAnchor = fallbackBp ? fallbackBp.attr('anchor') : undefined;
         const anchor = ownAnchor || fallbackAnchor;
-        const hasExplicitTextAnchor = ownAnchor !== undefined || fallbackAnchor !== undefined;
         textAnchor = anchor;
         const vert =
           (bodyPr ? bodyPr.attr('vert') : null) || (fallbackBp ? fallbackBp.attr('vert') : null);
@@ -2669,15 +2668,6 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
           applyVerticalTextFlow(textContainer, textAnchor);
           appendTransform(textContainer, 'rotate(180deg)');
           isVerticalText = true;
-        }
-
-        if (
-          isSingleLineSpAutoFit &&
-          !hasExplicitTextAnchor &&
-          !isVerticalText &&
-          hasCenteredParagraphs
-        ) {
-          textContainer.style.justifyContent = 'center';
         }
       }
 

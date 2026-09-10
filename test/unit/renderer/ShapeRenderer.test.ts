@@ -1349,6 +1349,47 @@ describe('ShapeRenderer', () => {
     expect(textContainer!.style.justifyContent).toBe('flex-start');
   });
 
+  it('top-aligns centered-paragraph spAutoFit text boxes without an explicit anchor (slide 10 chart center text)', () => {
+    const xml = `
+      <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+        <p:nvSpPr>
+          <p:cNvPr id="5" name="文本框 4"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="1785769" y="2477177"/><a:ext cx="2295862" cy="2693045"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="square" rtlCol="0"><a:spAutoFit/></a:bodyPr>
+          <a:lstStyle/>
+          <a:p>
+            <a:pPr algn="ctr"/>
+            <a:r>
+              <a:rPr sz="11500" b="1"/>
+              <a:t>80</a:t>
+            </a:r>
+            <a:r>
+              <a:rPr sz="5400" b="1"/>
+              <a:t>%</a:t>
+            </a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>
+    `;
+
+    const el = renderShape(parseShapeNode(parseXml(xml)), createMockRenderContext());
+    const textContainer = Array.from(el.querySelectorAll('div')).find(
+      (div) => div.textContent?.includes('80%') && div.style.flexDirection === 'column',
+    ) as HTMLElement | undefined;
+
+    expect(textContainer).toBeDefined();
+    expect(textContainer!.style.justifyContent).toBe('flex-start');
+  });
+
   it('does not shrink narrow spAutoFit axis labels when text overflow is explicit (xcloud-plan slides 8 and 79)', () => {
     const isFitContainer = (el: HTMLElement) =>
       el.style.display === 'flex' && el.style.flexDirection === 'column';
@@ -2854,7 +2895,7 @@ describe('ShapeRenderer', () => {
 
       expect(textContainer).toBeDefined();
       expect(textContainer!.style.transform).not.toContain('scale(');
-      expect(textContainer!.style.justifyContent).toBe('center');
+      expect(textContainer!.style.justifyContent).toBe('flex-start');
       expect(textContainer!.style.width).toBe('100%');
       expect(textContainer!.style.height).toBe('100%');
       expect(para?.style.marginTop).toBe('0px');
