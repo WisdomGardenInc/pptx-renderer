@@ -134,24 +134,102 @@ const CSS_GENERIC_FONT_FAMILIES = new Set([
   'fangsong',
 ]);
 
-const CJK_SANS_FALLBACKS = [
-  'PingFang SC',
-  'Hiragino Sans GB',
-  'Noto Sans CJK SC',
-  'Source Han Sans SC',
-  'Arial Unicode MS',
-  'sans-serif',
+/**
+ * Which system faces to fall back to for a CJK family, keyed by the style its name
+ * implies. Decks routinely name fonts the viewer does not have installed, and a bare
+ * `font-family: 汉仪小隶书简` leaves the browser on its default standard font — a modern
+ * sans at best, tofu on a system with no CJK coverage.
+ */
+type CjkFontStyle = 'sans' | 'serif' | 'kai';
+
+const CJK_FALLBACKS: Record<CjkFontStyle, string[]> = {
+  sans: [
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    'Noto Sans CJK SC',
+    'Source Han Sans SC',
+    'Arial Unicode MS',
+    'sans-serif',
+  ],
+  serif: [
+    'Songti SC',
+    'SimSun',
+    'Noto Serif CJK SC',
+    'Source Han Serif SC',
+    'Arial Unicode MS',
+    'serif',
+  ],
+  kai: ['Kaiti SC', 'KaiTi', 'STKaiti', 'Songti SC', 'SimSun', 'Noto Serif CJK SC', 'serif'],
+};
+
+/** Brush-script families (楷体, 行书, …) — the Kai faces are the closest system match. */
+const CJK_KAI_NAME = /楷|行[书書]|草[书書]/;
+
+/** Printed serif families (宋体, 明朝, 隶书, 篆书, …). */
+const CJK_SERIF_NAME = /宋|明[体體朝]|隶|篆|魏碑/;
+
+/** Han, kana and hangul — a family whose own name uses them is a CJK face. */
+const CJK_NAME_CHARS = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
+
+/**
+ * Romanised CJK style words, for families such as "A-OTF Kaisho MCBK1 Pro MCBK1"
+ * that contain no CJK character. Only words that never appear in a Latin family
+ * name belong here — "gothic" and "song" are far too common to match on.
+ */
+const CJK_LATIN_NAME_HINTS: Array<[RegExp, CjkFontStyle]> = [
+  [/\bkaisho\b/i, 'kai'],
+  [/\b(?:mincho|myeongjo)\b/i, 'serif'],
+  [/\bmaru\s?gothic\b/i, 'sans'],
 ];
 
-const CJK_FONT_FAMILY_ALIAS_KEYS = new Set([
-  'microsoft yahei',
-  'microsoft yahei ui',
-  '微软雅黑',
-  'dengxian',
-  '等线',
-  'simhei',
-  '黑体',
-  'heiti sc',
+/**
+ * CJK faces spelled in Latin, which `CJK_NAME_CHARS` cannot recognise. Their names
+ * carry no style keyword either ("SimSun" is a 宋体), so each one states its style.
+ */
+const CJK_LATIN_FAMILIES = new Map<string, CjkFontStyle>([
+  ['microsoft yahei', 'sans'],
+  ['microsoft yahei ui', 'sans'],
+  ['msyh', 'sans'],
+  ['dengxian', 'sans'],
+  ['simhei', 'sans'],
+  ['stheiti', 'sans'],
+  ['stxihei', 'sans'],
+  ['heiti sc', 'sans'],
+  ['heiti tc', 'sans'],
+  ['pingfang sc', 'sans'],
+  ['pingfang tc', 'sans'],
+  ['pingfang hk', 'sans'],
+  ['hiragino sans gb', 'sans'],
+  ['noto sans cjk sc', 'sans'],
+  ['source han sans sc', 'sans'],
+  ['ms gothic', 'sans'],
+  ['ms pgothic', 'sans'],
+  ['meiryo', 'sans'],
+  ['yu gothic', 'sans'],
+  ['malgun gothic', 'sans'],
+  ['gulim', 'sans'],
+  ['dotum', 'sans'],
+  ['simsun', 'serif'],
+  ['nsimsun', 'serif'],
+  ['songti sc', 'serif'],
+  ['songti tc', 'serif'],
+  ['stsong', 'serif'],
+  ['fangsong', 'serif'],
+  ['stfangsong', 'serif'],
+  ['noto serif cjk sc', 'serif'],
+  ['source han serif sc', 'serif'],
+  ['mingliu', 'serif'],
+  ['pmingliu', 'serif'],
+  ['ms mincho', 'serif'],
+  ['ms pmincho', 'serif'],
+  ['yu mincho', 'serif'],
+  ['batang', 'serif'],
+  ['simkai', 'kai'],
+  ['kaiti', 'kai'],
+  ['kaiti sc', 'kai'],
+  ['kaiti tc', 'kai'],
+  ['stkaiti', 'kai'],
 ]);
 
 const FONT_FAMILY_ALIASES: Record<string, string[]> = {
@@ -198,14 +276,33 @@ function expandFontFamilyAliases(fontFamily: string): string[] {
   return FONT_FAMILY_ALIASES[normalized] ?? [fontFamily.trim()];
 }
 
+/** True for families that render Chinese, Japanese or Korean text. */
+function isCjkFontFamily(fontFamily: string): boolean {
+  const normalized = normalizeFontFamilyName(fontFamily);
+  if (CJK_NAME_CHARS.test(normalized) || CJK_LATIN_FAMILIES.has(normalized)) return true;
+  return CJK_LATIN_NAME_HINTS.some(([pattern]) => pattern.test(normalized));
+}
+
+/** Pick the fallback chain that best matches the style a CJK family name implies. */
+function cjkFontStyle(fontFamily: string): CjkFontStyle {
+  const normalized = normalizeFontFamilyName(fontFamily);
+  const known = CJK_LATIN_FAMILIES.get(normalized);
+  if (known) return known;
+  if (CJK_KAI_NAME.test(fontFamily)) return 'kai';
+  if (CJK_SERIF_NAME.test(fontFamily)) return 'serif';
+  const hinted = CJK_LATIN_NAME_HINTS.find(([pattern]) => pattern.test(normalized));
+  return hinted ? hinted[1] : 'sans';
+}
+
 export function cssFontFamilyStack(fontFamily: string | string[]): string {
   const baseFonts = Array.isArray(fontFamily)
     ? fontFamily.flatMap(expandFontFamilyAliases)
     : expandFontFamilyAliases(fontFamily);
-  const needsCjkFallbacks = baseFonts.some((font) =>
-    CJK_FONT_FAMILY_ALIAS_KEYS.has(normalizeFontFamilyName(font)),
-  );
-  const stack = needsCjkFallbacks ? [...baseFonts, ...CJK_SANS_FALLBACKS] : baseFonts;
+  // Any CJK family in the stack earns a fallback chain — the requested face is often
+  // a foundry font the viewer does not have, and without this the browser is left on
+  // its default standard font.
+  const cjkFamily = baseFonts.find(isCjkFontFamily);
+  const stack = cjkFamily ? [...baseFonts, ...CJK_FALLBACKS[cjkFontStyle(cjkFamily)]] : baseFonts;
   const seen = new Set<string>();
   const unique = stack.filter((font) => {
     const key = normalizeFontFamilyName(font);

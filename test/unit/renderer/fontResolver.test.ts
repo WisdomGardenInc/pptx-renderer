@@ -126,4 +126,66 @@ describe('fontResolver', () => {
     expect(cssFontFamilyStack('微软雅黑')).toContain('"PingFang SC"');
     expect(cssFontFamilyStack('A "Quoted" \\ Font')).toBe('"A \\"Quoted\\" \\\\ Font"');
   });
+
+  describe('CJK fallback chains', () => {
+    it('appends a fallback chain to any CJK-named family, not just known aliases', () => {
+      // 汉仪小隶书简 is a foundry font almost nobody has installed. Without a
+      // fallback the browser is left on its default standard font.
+      const stack = cssFontFamilyStack('汉仪小隶书简');
+      expect(stack.startsWith('"汉仪小隶书简", ')).toBe(true);
+      expect(stack).toContain('"Songti SC"');
+      expect(stack.endsWith('serif')).toBe(true);
+    });
+
+    it('picks the serif chain for 宋/明/隶 style names', () => {
+      for (const family of ['宋体', '华文中宋', '汉仪小隶书简', '方正小篆体']) {
+        const stack = cssFontFamilyStack(family);
+        expect(stack).toContain('"Songti SC"');
+        expect(stack).not.toContain('"PingFang SC"');
+      }
+    });
+
+    it('picks the Kai chain for brush-script names', () => {
+      for (const family of ['楷体', '华文行楷', 'STKaiti', 'SimKai']) {
+        expect(cssFontFamilyStack(family)).toContain('"Kaiti SC"');
+      }
+    });
+
+    it('picks the sans chain for hei/yahei style names', () => {
+      for (const family of ['微软雅黑', '黑体', '方正兰亭黑', '华文细黑']) {
+        const stack = cssFontFamilyStack(family);
+        expect(stack).toContain('"PingFang SC"');
+        expect(stack.endsWith('sans-serif')).toBe(true);
+      }
+    });
+
+    it('classifies Latin-spelled CJK families by an explicit style table', () => {
+      expect(cssFontFamilyStack('SimSun')).toContain('"Songti SC"');
+      expect(cssFontFamilyStack('MS Mincho')).toContain('"Songti SC"');
+      expect(cssFontFamilyStack('Batang')).toContain('"Songti SC"');
+      expect(cssFontFamilyStack('Meiryo')).toContain('"PingFang SC"');
+      expect(cssFontFamilyStack('Malgun Gothic')).toContain('"PingFang SC"');
+    });
+
+    it('keeps the requested families first and drops duplicates', () => {
+      const stack = cssFontFamilyStack(['Arial', '宋体']);
+      expect(stack.startsWith('"Arial", "宋体", ')).toBe(true);
+      expect(stack.match(/"SimSun"/g)).toHaveLength(1);
+      expect(cssFontFamilyStack('SimSun').match(/"SimSun"/g)).toHaveLength(1);
+    });
+
+    it('recognises romanised CJK style words in otherwise Latin family names', () => {
+      expect(cssFontFamilyStack('A-OTF Kaisho MCBK1 Pro MCBK1')).toContain('"Kaiti SC"');
+      expect(cssFontFamilyStack('A-OTF Ryumin Pr6N Mincho')).toContain('"Songti SC"');
+      // "Gothic" and "Song" are ordinary Latin family words and must not match.
+      expect(cssFontFamilyStack('Century Gothic')).toBe('"Century Gothic"');
+      expect(cssFontFamilyStack('Song Sans')).toBe('"Song Sans"');
+    });
+
+    it('leaves non-CJK families untouched', () => {
+      expect(cssFontFamilyStack('Arial')).toBe('"Arial"');
+      expect(cssFontFamilyStack('Times New Roman')).toBe('"Times New Roman"');
+      expect(cssFontFamilyStack('Aptos')).not.toContain('PingFang');
+    });
+  });
 });
