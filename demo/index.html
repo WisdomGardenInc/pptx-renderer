@@ -89,6 +89,36 @@
       .version-badge-link:hover {
         color: #86efac;
       }
+      .version-picker {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .version-select {
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 600;
+        color: #4ade80;
+        background: var(--bg-raised);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 3px 9px;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        max-width: 240px;
+      }
+      .version-select:hover:not(:disabled) {
+        color: #86efac;
+        border-color: rgba(74, 222, 128, 0.4);
+      }
+      .version-select:disabled {
+        cursor: progress;
+        opacity: 0.6;
+      }
+      .version-select option {
+        background: var(--bg-surface);
+        color: var(--text);
+      }
       .github-link {
         color: var(--text-dim);
         text-decoration: none;
@@ -986,15 +1016,24 @@
     <div class="top-bar">
       <div class="top-bar-left">
         <h1>PPTX Renderer</h1>
-        <a
-          class="version-badge-link"
-          href="https://www.npmjs.com/package/@wisdomgarden/pptx-renderer"
-          target="_blank"
-          rel="noopener"
-          title="View on npm"
-          id="version-badge"
-          >Version —</a
-        >
+        <div class="version-picker">
+          <select
+            class="version-select"
+            id="version-select"
+            title="Renderer build used to render the deck"
+          >
+            <option value="source">Loading…</option>
+          </select>
+          <a
+            class="version-badge-link"
+            href="https://www.npmjs.com/package/@wisdomgarden/pptx-renderer"
+            target="_blank"
+            rel="noopener"
+            title="View this build on npm"
+            id="version-npm-link"
+            >npm ↗</a
+          >
+        </div>
       </div>
       <a
         class="github-link"
@@ -1124,7 +1163,12 @@
     </div>
 
     <script type="module">
-      import { PptxViewer, RECOMMENDED_ZIP_LIMITS } from '../src/index.ts';
+      import * as sourceLib from '../src/index.ts';
+
+      // Rebindable renderer entry points. The version picker below swaps these for
+      // a published `./browser` build, so every render path stays version-agnostic.
+      let PptxViewer = sourceLib.PptxViewer;
+      let RECOMMENDED_ZIP_LIMITS = sourceLib.RECOMMENDED_ZIP_LIMITS;
 
       const container = document.getElementById('pptx-container');
       const fileInput = document.getElementById('file-input');
@@ -1153,6 +1197,8 @@
 
       let viewer = null;
       let cachedBuffer = null;
+      let cachedLabel = '';
+      let cachedBytes = undefined;
       let totalSlides = 0;
       let thumbnailObserver = null;
       let searchMatches = [];
@@ -1183,14 +1229,127 @@
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       shortcutHint.textContent = isMac ? '\u2318O' : 'Ctrl+O';
 
-      // Version from npm registry (no background, green text)
-      const versionBadge = document.getElementById('version-badge');
-      fetch('https://registry.npmjs.org/@wisdomgarden/pptx-renderer/latest')
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.version) versionBadge.textContent = 'Version ' + d.version;
-        })
-        .catch(() => {});
+      // --- Renderer version picker -----------------------------------------
+      // "source" renders through the bundled working tree; every other entry is a
+      // published `./browser` build imported from the CDN at runtime. That entry
+      // only exists from 1.2.4 on, and the package was renamed mid-history, so the
+      // list is discovered from both scopes and filtered on `exports['./browser']`.
+      const SOURCE_VERSION = 'source';
+      const REGISTRY_PACKAGES = ['@wisdomgarden/pptx-renderer', '@aiden0z/pptx-renderer'];
+      const versionSelect = document.getElementById('version-select');
+      const versionNpmLink = document.getElementById('version-npm-link');
+      const loadedRenderers = new Map([[SOURCE_VERSION, sourceLib]]);
+      const publishedBuilds = new Map();
+      let activeVersion = SOURCE_VERSION;
+
+      function compareVersionsDesc(a, b) {
+        const parse = (v) =>
+          v
+            .split('-')[0]
+            .split('.')
+            .map((n) => Number(n) || 0);
+        const [aParts, bParts] = [parse(a), parse(b)];
+        for (let i = 0; i < 3; i++) {
+          if ((bParts[i] ?? 0) !== (aParts[i] ?? 0)) return (bParts[i] ?? 0) - (aParts[i] ?? 0);
+        }
+        // Release sorts ahead of its own prereleases.
+        return Number(a.includes('-')) - Number(b.includes('-'));
+      }
+
+      // Read the real artifact path from the manifest rather than hardcoding the
+      // filename, so a future rename of the build output does not break the picker.
+      function browserEntryPath(meta) {
+        const entry = meta?.exports?.['./browser'];
+        const path = typeof entry === 'string' ? entry : (entry?.import ?? entry?.default);
+        return typeof path === 'string' ? path.replace(/^\.\//, '') : undefined;
+      }
+
+      async function fetchBrowserBuilds(pkg) {
+        const resp = await fetch(`https://registry.npmjs.org/${pkg}`);
+        if (!resp.ok) throw new Error(`${pkg} registry responded ${resp.status}`);
+        const doc = await resp.json();
+        return Object.entries(doc.versions ?? {})
+          .map(([version, meta]) => ({ version, pkg, entry: browserEntryPath(meta) }))
+          .filter((build) => build.entry);
+      }
+
+      function npmUrlFor(value) {
+        const build = publishedBuilds.get(value);
+        return build
+          ? `https://www.npmjs.com/package/${build.pkg}/v/${build.version}`
+          : `https://www.npmjs.com/package/${REGISTRY_PACKAGES[0]}`;
+      }
+
+      function syncVersionNpmLink() {
+        versionNpmLink.href = npmUrlFor(activeVersion);
+      }
+
+      async function discoverVersions() {
+        const settled = await Promise.allSettled(REGISTRY_PACKAGES.map(fetchBrowserBuilds));
+        const builds = settled
+          .filter((r) => r.status === 'fulfilled')
+          .flatMap((r) => r.value)
+          .sort((a, b) => compareVersionsDesc(a.version, b.version));
+
+        if (settled.every((r) => r.status === 'rejected')) {
+          console.warn('Version discovery failed; only the bundled source build is selectable.');
+        }
+
+        publishedBuilds.clear();
+        for (const build of builds) {
+          publishedBuilds.set(build.version, build);
+        }
+
+        versionSelect.replaceChildren();
+        const sourceOption = document.createElement('option');
+        sourceOption.value = SOURCE_VERSION;
+        sourceOption.textContent = 'Source (this build)';
+        versionSelect.append(sourceOption);
+        for (const build of builds) {
+          const option = document.createElement('option');
+          option.value = build.version;
+          option.textContent = `Version ${build.version}`;
+          versionSelect.append(option);
+        }
+        versionSelect.value = activeVersion;
+        syncVersionNpmLink();
+      }
+
+      async function loadRenderer(value) {
+        const cached = loadedRenderers.get(value);
+        if (cached) return cached;
+        const build = publishedBuilds.get(value);
+        if (!build) throw new Error(`Unknown renderer version ${value}`);
+        const url = `https://cdn.jsdelivr.net/npm/${build.pkg}@${build.version}/${build.entry}`;
+        const mod = await import(/* @vite-ignore */ url);
+        if (!mod?.PptxViewer)
+          throw new Error(`${build.pkg}@${build.version} exposes no PptxViewer`);
+        loadedRenderers.set(value, mod);
+        return mod;
+      }
+
+      async function switchRendererVersion(value) {
+        if (value === activeVersion) return;
+        const previous = activeVersion;
+        versionSelect.disabled = true;
+        try {
+          const mod = await loadRenderer(value);
+          PptxViewer = mod.PptxViewer;
+          RECOMMENDED_ZIP_LIMITS = mod.RECOMMENDED_ZIP_LIMITS ?? RECOMMENDED_ZIP_LIMITS;
+          activeVersion = value;
+          syncVersionNpmLink();
+          if (cachedBuffer) await renderBuffer(cachedBuffer, cachedLabel, cachedBytes);
+        } catch (e) {
+          versionSelect.value = previous;
+          const errMsg = e instanceof Error ? e.message : String(e);
+          showError(`Failed to load renderer ${value}: ${errMsg}`);
+        } finally {
+          versionSelect.disabled = false;
+        }
+      }
+
+      versionSelect.addEventListener('change', () => switchRendererVersion(versionSelect.value));
+      discoverVersions();
 
       function formatFileSize(bytes) {
         if (bytes < 1024) return bytes + ' B';
@@ -1276,6 +1435,8 @@
         if (viewer) viewer.destroy();
         viewer = null;
         cachedBuffer = null;
+        cachedLabel = '';
+        cachedBytes = undefined;
         totalSlides = 0;
         clearStats();
         resetSidePanel();
@@ -1296,6 +1457,8 @@
           cleanupThumbnails();
           if (viewer) viewer.destroy();
           cachedBuffer = buffer;
+          cachedLabel = label;
+          cachedBytes = fileBytes;
           const t0 = performance.now();
           viewer = await PptxViewer.open(buffer, container, createViewerOpenOptions());
           // Use typed on() helper: keep thumbnails and search overlays in sync.

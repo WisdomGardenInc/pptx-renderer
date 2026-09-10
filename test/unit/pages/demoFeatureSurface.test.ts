@@ -117,6 +117,51 @@ describe('public demo feature surface', () => {
     expect(demoViteConfig).toContain('publicDir: false');
   });
 
+  it('lets the public demo render through a published renderer build', () => {
+    expect(demoHtml).toContain('id="version-select"');
+    expect(demoHtml).toContain("versionSelect.addEventListener('change'");
+    expect(demoHtml).toContain('switchRendererVersion');
+
+    // Both npm scopes must be queried: ./browser exists from 1.2.4 (old scope) on.
+    expect(demoHtml).toContain("'@wisdomgarden/pptx-renderer', '@aiden0z/pptx-renderer'");
+    expect(demoHtml).toContain('registry.npmjs.org/${pkg}');
+    expect(demoHtml).toContain("exports?.['./browser']");
+    expect(demoHtml).toContain('.filter((build) => build.entry)');
+  });
+
+  it('rebinds the renderer entry points instead of pinning the bundled import', () => {
+    expect(demoHtml).toContain("import * as sourceLib from '../src/index.ts'");
+    expect(demoHtml).toContain('let PptxViewer = sourceLib.PptxViewer');
+    expect(demoHtml).toContain('let RECOMMENDED_ZIP_LIMITS = sourceLib.RECOMMENDED_ZIP_LIMITS');
+    expect(demoHtml).toContain('PptxViewer = mod.PptxViewer');
+
+    // The dev page always renders the working tree, so it keeps the plain import.
+    expect(devHtml).not.toContain('version-select');
+  });
+
+  it('resolves the published entry path from the registry manifest', () => {
+    // Hardcoding the artifact basename would break on a future build-output rename.
+    expect(demoHtml).toContain('function browserEntryPath(meta)');
+    expect(demoHtml).toContain('entry?.import ?? entry?.default');
+    expect(demoHtml).toContain('cdn.jsdelivr.net/npm/${build.pkg}@${build.version}/${build.entry}');
+  });
+
+  it('re-renders the loaded deck when the renderer version changes', () => {
+    expect(demoHtml).toContain('cachedLabel');
+    expect(demoHtml).toContain('cachedBytes');
+    expect(demoHtml).toContain(
+      'if (cachedBuffer) await renderBuffer(cachedBuffer, cachedLabel, cachedBytes)',
+    );
+  });
+
+  it('caches loaded renderer builds and reverts a failed version switch', () => {
+    expect(demoHtml).toContain('loadedRenderers');
+    expect(demoHtml).toContain('loadedRenderers.set(value, mod)');
+    expect(demoHtml).toContain('versionSelect.value = previous');
+    expect(demoHtml).toContain('Failed to load renderer ${value}');
+    expect(demoHtml).toContain('versionSelect.disabled = false');
+  });
+
   it('keeps the public demo empty state visually anchored', () => {
     const previewCss = demoHtml.match(/\.empty-slide-preview\s*\{([^}]*)\}/)?.[1] ?? '';
 
