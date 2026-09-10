@@ -204,6 +204,21 @@ function getSupportedTextWarpPreset(textBody: TextBody): 'textArchDown' | 'textA
   return preset === 'textArchDown' || preset === 'textArchUp' ? preset : null;
 }
 
+/** `adj` of a text warp preset, in 60000ths of a degree (OOXML preset default when absent). */
+function getTextWarpAdjustment(textBody: TextBody, preset: 'textArchDown' | 'textArchUp'): number {
+  // presetTextWarpDefinitions.xml defaults: textArchUp `val cd2` (180°), textArchDown `val 0`.
+  const fallback = preset === 'textArchUp' ? 10800000 : 0;
+  const gd = textBody.bodyProperties
+    ?.child('prstTxWarp')
+    .child('avLst')
+    .children('gd')
+    .find((node) => node.attr('name') === 'adj');
+  const fmla = gd?.attr('fmla');
+  if (!fmla) return fallback;
+  const match = /^val\s+(-?\d+)$/.exec(fmla.trim());
+  return match ? Number(match[1]) : fallback;
+}
+
 function getSingleLineWarpText(textBody: TextBody): string | null {
   let text = '';
   let visibleParagraphCount = 0;
@@ -226,16 +241,95 @@ function getFirstVisibleRunProperties(textBody: TextBody): SafeXmlNode | undefin
   return undefined;
 }
 
-function buildTextArchPath(preset: 'textArchDown' | 'textArchUp', w: number, h: number): string {
-  const padX = Math.min(Math.max(w * 0.04, 4), 18);
-  const startX = padX;
-  const endX = Math.max(startX, w - padX);
-  if (preset === 'textArchDown') {
-    const y = h * 0.36;
-    return `M${startX},${y} Q${w / 2},${h * 0.9} ${endX},${y}`;
+/**
+ * Where the single warped line sits along the arch. PowerPoint lays the run out at its
+ * natural size and lets paragraph alignment slide it along the baseline path — designers
+ * rely on that (plus trailing spaces) to nudge labels around a ring. Falls back to centred
+ * when nothing in the shape declares an alignment, which matches WordArt defaults.
+ */
+function getTextArchAlignment(textBody: TextBody): { startOffset: string; textAnchor: string } {
+  const paragraph = textBody.paragraphs.find((p) =>
+    p.runs.some((run) => run.text != null && run.text.length > 0),
+  );
+  const align =
+    paragraph?.properties?.attr('algn') ??
+    textBody.listStyle?.child('lvl1pPr').attr('algn') ??
+    'ctr';
+  if (align === 'l' || align === 'just' || align === 'justLow' || align === 'dist')
+    return { startOffset: '0%', textAnchor: 'start' };
+  if (align === 'r') return { startOffset: '100%', textAnchor: 'end' };
+  return { startOffset: '50%', textAnchor: 'middle' };
+}
+
+/** OOXML `?: x a b` — pick `a` when `x >= 0`, else `b`. */
+const ooxmlIf = (x: number, a: number, b: number): number => (x >= 0 ? a : b);
+
+/**
+ * Start/sweep angle (60000ths of a degree) of the arch baseline, transcribed from
+ * ECMA-376 presetTextWarpDefinitions.xml. Both presets stay symmetric around the
+ * top (textArchUp) or bottom (textArchDown) of the ellipse inscribed in the shape.
+ */
+function getTextArchAngles(
+  preset: 'textArchDown' | 'textArchUp',
+  adj: number,
+): { stAng: number; swAng: number } {
+  const adval = Math.min(Math.max(adj, 0), 21599999);
+  const v1 = 10800000 - adval;
+  const v2 = 32400000 - adval;
+  const w1 = 5400000 - adval;
+  const w2 = 16200000 - adval;
+
+  if (preset === 'textArchUp') {
+    const end = ooxmlIf(v1, v1, v2);
+    const d1 = end - adval;
+    const d2 = 21600000 + d1;
+    const c2 = ooxmlIf(w2, d1, d2);
+    const c1 = ooxmlIf(v1, d2, c2);
+    return { stAng: adval, swAng: ooxmlIf(w1, d1, c1) };
   }
-  const y = h * 0.66;
-  return `M${startX},${y} Q${w / 2},${h * 0.08} ${endX},${y}`;
+
+  const stAng = ooxmlIf(-v1, v2, v1);
+  const d1 = adval - stAng;
+  const d2 = d1 - 21600000;
+  const c2 = ooxmlIf(w2, d1, d2);
+  const c1 = ooxmlIf(v1, d2, c2);
+  const c0 = ooxmlIf(w1, d1, c1);
+  return { stAng, swAng: ooxmlIf(stAng, c0, -10800000) };
+}
+
+/** Longest visual sweep per SVG arc segment, so each stays well under a half turn. */
+const TEXT_ARCH_MAX_SEGMENT_DEG = 45;
+
+function buildTextArchPath(
+  preset: 'textArchDown' | 'textArchUp',
+  w: number,
+  h: number,
+  adj: number,
+): string {
+  const { stAng, swAng } = getTextArchAngles(preset, adj);
+  const startDeg = stAng / 60000;
+  const sweepDeg = swAng / 60000;
+  const rx = w / 2;
+  const ry = h / 2;
+  const round = (value: number) => Number(value.toFixed(2));
+
+  // OOXML arc angles are visual (ray from the centre); convert each to the
+  // ellipse's parametric angle before evaluating the point.
+  const pointAt = (deg: number): [number, number] => {
+    const rad = (deg * Math.PI) / 180;
+    const t = Math.atan2(rx * Math.sin(rad), ry * Math.cos(rad));
+    return [rx + rx * Math.cos(t), ry + ry * Math.sin(t)];
+  };
+
+  const [startX, startY] = pointAt(startDeg);
+  let d = `M${round(startX)},${round(startY)}`;
+  const segments = Math.max(1, Math.ceil(Math.abs(sweepDeg) / TEXT_ARCH_MAX_SEGMENT_DEG));
+  const sweepFlag = sweepDeg >= 0 ? 1 : 0;
+  for (let i = 1; i <= segments; i++) {
+    const [x, y] = pointAt(startDeg + (sweepDeg * i) / segments);
+    d += ` A${round(rx)},${round(ry)} 0 0,${sweepFlag} ${round(x)},${round(y)}`;
+  }
+  return d;
 }
 
 function renderWarpedTextBody(node: ShapeNodeData, ctx: RenderContext): SVGSVGElement | null {
@@ -274,7 +368,15 @@ function renderWarpedTextBody(node: ShapeNodeData, ctx: RenderContext): SVGSVGEl
   const path = document.createElementNS(svgNs, 'path');
   const pathId = `text-warp-${++gradientIdCounter}`;
   path.setAttribute('id', pathId);
-  path.setAttribute('d', buildTextArchPath(preset, node.size.w, node.size.h));
+  path.setAttribute(
+    'd',
+    buildTextArchPath(
+      preset,
+      node.size.w,
+      node.size.h,
+      getTextWarpAdjustment(node.textBody, preset),
+    ),
+  );
   path.setAttribute('fill', 'none');
   defs.appendChild(path);
   svg.appendChild(defs);
@@ -284,12 +386,12 @@ function renderWarpedTextBody(node: ShapeNodeData, ctx: RenderContext): SVGSVGEl
   if (fontStack.length > 0) textEl.setAttribute('font-family', cssFontFamilyStack(fontStack));
   if (fontWeight) textEl.setAttribute('font-weight', fontWeight);
   textEl.setAttribute('fill', fill);
-  textEl.setAttribute('dominant-baseline', 'middle');
 
+  const { startOffset, textAnchor } = getTextArchAlignment(node.textBody);
   const textPath = document.createElementNS(svgNs, 'textPath');
   textPath.setAttribute('href', `#${pathId}`);
-  textPath.setAttribute('startOffset', '50%');
-  textPath.setAttribute('text-anchor', 'middle');
+  textPath.setAttribute('startOffset', startOffset);
+  textPath.setAttribute('text-anchor', textAnchor);
   textPath.setAttribute('xml:space', 'preserve');
   textPath.textContent = text;
   textEl.appendChild(textPath);

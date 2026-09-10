@@ -3067,7 +3067,12 @@ describe('ShapeRenderer', () => {
     expect(textPath!.textContent).toBe('任务一键启停，快速训练');
     expect(textPath!.getAttribute('startOffset')).toBe('50%');
     expect(textPath!.getAttribute('text-anchor')).toBe('middle');
-    expect(warpPath?.getAttribute('d')).toContain('Q');
+    // Default textArchDown (adj 0) is the lower half of the ellipse inscribed in the
+    // 186.22 x 32.31 px box: left edge -> bottom centre -> right edge.
+    expect(warpPath?.getAttribute('d')).toBe(
+      'M0,16.16 A93.11,16.16 0 0,0 77.19,32.07 A93.11,16.16 0 0,0 93.11,32.31' +
+        ' A93.11,16.16 0 0,0 109.03,32.07 A93.11,16.16 0 0,0 186.22,16.16',
+    );
     expect(el.querySelector('text')?.getAttribute('font-size')).toBe('12pt');
     expect(htmlTextContainer).toBeUndefined();
   });
@@ -6464,9 +6469,11 @@ describe('ShapeRenderer', () => {
   );
 
   it.each([
-    ['textArchDown', /Q50,72 96,28\.79/],
-    ['textArchUp', /Q50,6.4 96,52.8/],
-  ])('renders supported text warp preset %s as an SVG textPath', (preset, pathMatcher) => {
+    // 100 x 80 px box: the default arch spans the full inscribed ellipse half,
+    // sweeping through the bottom (down) or top (up) centre point.
+    ['textArchDown', 'M0,40 A50,40 0 0,0 50,80 A50,40 0 0,0 100,40'],
+    ['textArchUp', 'M0,40 A50,40 0 0,1 50,0 A50,40 0 0,1 100,40'],
+  ])('renders supported text warp preset %s as an SVG textPath', (preset, expectedPath) => {
     const xml = `
       <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
@@ -6509,7 +6516,143 @@ describe('ShapeRenderer', () => {
     expect(text.getAttribute('font-weight')).toBe('bold');
     expect(text.getAttribute('fill')).toBe('#CC3300');
     expect(text.getAttribute('font-family')).toContain('微软雅黑');
-    expect(warpPath.getAttribute('d')).toMatch(pathMatcher);
+    // Segment endpoints are sampled every 45 degrees; keep only the axis crossings.
+    const [start, ...arcs] = warpPath.getAttribute('d')!.split(' A');
+    const axisCrossings = arcs.filter((_, index) => index % 2 === 1).map((arc) => `A${arc}`);
+    expect([start, ...axisCrossings].join(' ')).toBe(expectedPath);
+  });
+
+  it('arcs warped text along the prstTxWarp adj angle, not a fixed shallow curve (1ppt chart slide 3)', () => {
+    // 形状12314: textArchUp with adj 11819555 (196.99 deg) on a 189.1 x 99.4 px box.
+    // The baseline must stay symmetric around the top of the inscribed ellipse so the
+    // rotated label lands on its ring segment instead of drifting into the donut hole.
+    const xml = `
+      <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+        <p:nvSpPr>
+          <p:cNvPr id="27" name="形状12314"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm rot="3469349">
+            <a:off x="3829943" y="3194731"/>
+            <a:ext cx="1801578" cy="946857"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="square">
+            <a:prstTxWarp prst="textArchUp">
+              <a:avLst><a:gd name="adj" fmla="val 11819555"/></a:avLst>
+            </a:prstTxWarp>
+            <a:spAutoFit/>
+          </a:bodyPr>
+          <a:lstStyle/>
+          <a:p>
+            <a:pPr algn="r"/>
+            <a:r>
+              <a:rPr lang="zh-CN" sz="1400">
+                <a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
+              </a:rPr>
+              <a:t>增长领域       </a:t>
+            </a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>
+    `;
+
+    const el = renderShape(parseShapeNode(parseXml(xml)), createMockRenderContext());
+    const d = el.querySelector('svg defs path')!.getAttribute('d')!;
+    const numbers = (segment: string) => segment.split(',').map(Number);
+
+    const [startX, startY] = numbers(d.slice(1).split(' ')[0]);
+    const [endX, endY] = numbers(d.split(' ').at(-1)!);
+    // Arc ends sit well inside the box width and near its top, mirrored around the centre.
+    expect(startX).toBeCloseTo(12.81, 1);
+    expect(endX).toBeCloseTo(176.33, 1);
+    expect(startY).toBeCloseTo(endY, 5);
+    expect(startY).toBeCloseTo(24.67, 1);
+    // The apex touches the top edge of the box, not the shallow 8%-of-height fake arc.
+    expect(d).toContain('94.57,0');
+    // Sweep is clockwise (up-arch) and never degenerates into a quadratic approximation.
+    expect(d).not.toContain('Q');
+    expect(d.match(/ A/g)).toHaveLength(4);
+    expect(d).toContain('0 0,1 ');
+  });
+
+  it('slides right-aligned warped text back along the arc so trailing spaces nudge it (1ppt chart slide 3)', () => {
+    const xml = `
+      <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+        <p:nvSpPr>
+          <p:cNvPr id="30" name="形状12317"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm rot="4372589">
+            <a:off x="2305328" y="3602957"/>
+            <a:ext cx="1801578" cy="946857"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="square">
+            <a:prstTxWarp prst="textArchDown">
+              <a:avLst><a:gd name="adj" fmla="val 654185"/></a:avLst>
+            </a:prstTxWarp>
+          </a:bodyPr>
+          <a:lstStyle/>
+          <a:p>
+            <a:pPr algn="r"/>
+            <a:r><a:rPr lang="zh-CN" sz="1400"/><a:t>利润下降部分    </a:t></a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>
+    `;
+
+    const el = renderShape(parseShapeNode(parseXml(xml)), createMockRenderContext());
+    const textPath = el.querySelector('textPath')!;
+
+    expect(textPath.getAttribute('startOffset')).toBe('100%');
+    expect(textPath.getAttribute('text-anchor')).toBe('end');
+    // Trailing spaces are part of the nudge, so they must survive into the textPath.
+    expect(textPath.textContent).toBe('利润下降部分    ');
+    // textArchDown dips to the bottom edge of the box regardless of the small adj.
+    expect(el.querySelector('svg defs path')!.getAttribute('d')).toContain('94.57,99.41');
+  });
+
+  it('starts left-aligned warped text at the beginning of the arc', () => {
+    const xml = `
+      <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+        <p:nvSpPr>
+          <p:cNvPr id="31" name="Left aligned warp"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="0"/><a:ext cx="952500" cy="762000"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr><a:prstTxWarp prst="textArchUp"/></a:bodyPr>
+          <a:lstStyle/>
+          <a:p>
+            <a:pPr algn="l"/>
+            <a:r><a:rPr lang="zh-CN" sz="1400"/><a:t>曲线文字</a:t></a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>
+    `;
+
+    const el = renderShape(parseShapeNode(parseXml(xml)), createMockRenderContext());
+    const textPath = el.querySelector('textPath')!;
+
+    expect(textPath.getAttribute('startOffset')).toBe('0%');
+    expect(textPath.getAttribute('text-anchor')).toBe('start');
   });
 
   it('falls back to normal text rendering when text warp has multiple visible paragraphs', () => {
