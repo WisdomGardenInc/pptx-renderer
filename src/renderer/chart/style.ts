@@ -5,6 +5,7 @@ import { resolveColor, resolveLineStyle } from '../StyleResolver';
 import { RenderContext } from '../RenderContext';
 import { findMediaByTarget, getOrCreateBlobUrl } from '../../utils/media';
 import { isExternalTargetMode } from '../../parser/RelParser';
+import type { PicturePattern } from './pictureFill';
 import type { ChartLineStyle, ChartLineType, DataPointStyle } from './types';
 
 export function resolveColorToHex(fillNode: SafeXmlNode, ctx: RenderContext): string | undefined {
@@ -67,7 +68,7 @@ export function extractSeriesColor(
 
   const blipFill = spPr.child('blipFill');
   if (blipFill.exists()) {
-    const pattern = buildSeriesPicturePattern(blipFill, ctx);
+    const pattern = buildSeriesPicturePattern(blipFill, ser, ctx);
     if (pattern) return pattern;
   }
 
@@ -86,16 +87,20 @@ export function extractSeriesColor(
 /**
  * Build an ECharts pattern fill for a series painted with a picture (`a:blipFill`).
  *
- * `c:pictureOptions/c:pictureFormat` says how the picture fills the bar: `stack`
- * and `stackScale` tile it at its natural size, which is exactly a repeating
- * canvas pattern. `stretch` (the default) should scale one copy to the bar, which
- * a shape-independent pattern cannot express, so it tiles too — closer to the
- * intended artwork than dropping the fill and falling back to a palette color.
+ * `c:pictureOptions/c:pictureFormat` decides how the picture meets the bar —
+ * `stretch` (the default) scales one copy to it, `stack`/`stackScale` tile it
+ * along it — but either way the bar rectangle only exists after layout. The
+ * format is recorded here and `applyBarPictureFillGeometry` finishes the job;
+ * until then a plain repeat shows the artwork rather than a palette color.
  *
  * The URL is handed to zrender as a string: it loads the image itself and marks
  * the element dirty when ready, so no preloading is needed here.
  */
-function buildSeriesPicturePattern(blipFill: SafeXmlNode, ctx: RenderContext): object | undefined {
+function buildSeriesPicturePattern(
+  blipFill: SafeXmlNode,
+  ser: SafeXmlNode,
+  ctx: RenderContext,
+): PicturePattern | undefined {
   const embed = blipFill.child('blip').attr('embed');
   if (!embed || !ctx.partPath) return undefined;
 
@@ -106,7 +111,12 @@ function buildSeriesPicturePattern(blipFill: SafeXmlNode, ctx: RenderContext): o
   if (!resolved) return undefined;
 
   const url = getOrCreateBlobUrl(resolved.mediaPath, resolved.data, ctx.mediaUrlCache);
-  return { image: url, repeat: 'repeat' };
+  const format = ser.child('pictureOptions').child('pictureFormat').attr('val');
+  return {
+    image: url,
+    repeat: 'repeat',
+    pictureFormat: format === 'stack' || format === 'stackScale' ? format : 'stretch',
+  };
 }
 
 export function extractSeriesLineWidth(ser: SafeXmlNode): number | undefined {

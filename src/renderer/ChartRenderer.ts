@@ -6,6 +6,7 @@ import type * as EChartsTypes from 'echarts';
 import type { EChartsType } from 'echarts/core';
 import { ChartNodeData } from '../model/nodes/ChartNode';
 import { RenderContext } from './RenderContext';
+import { applyBarPictureFillGeometry } from './chart/pictureFill';
 import { SafeXmlNode } from '../parser/XmlParser';
 import { hexToRgb, hslToRgb, rgbToHex, rgbToHsl } from '../utils/color';
 import { applyAxisInfo, getChartAxisIds, parseAxes, parseScatterAxes } from './chart/axes';
@@ -2685,6 +2686,16 @@ function initChart(
     chart.setOption(option);
     chartInstances?.add(chart);
 
+    // Picture fills need the laid-out bar rectangles, so they are sized after the
+    // first render and again whenever the layout changes.
+    const sizePictureFills = () => {
+      if (signal?.aborted || chart.isDisposed()) return;
+      void applyBarPictureFillGeometry(chart, option).catch(() => {
+        // A picture that will not load keeps the plain tiling.
+      });
+    };
+    sizePictureFills();
+
     const dispose = () => {
       ro?.disconnect();
       if (!chart.isDisposed()) chart.dispose();
@@ -2704,6 +2715,7 @@ function initChart(
             }
             if (container.isConnected) {
               chart.resize();
+              sizePictureFills();
             } else {
               // Container removed from DOM — dispose to prevent leaks
               dispose();
