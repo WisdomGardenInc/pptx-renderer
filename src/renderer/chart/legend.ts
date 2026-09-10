@@ -242,8 +242,36 @@ export function pickVisualStringColor(
   return (
     (typeof lineStyle.color === 'string' ? lineStyle.color : undefined) ??
     (typeof itemStyle.color === 'string' ? itemStyle.color : undefined) ??
+    firstGradientStopColor(lineStyle.color) ??
+    firstGradientStopColor(itemStyle.color) ??
     fallback
   );
+}
+
+/**
+ * A gradient-filled series carries an object color, not a string. Its first stop
+ * makes a far better legend swatch than an unrelated palette entry.
+ */
+function firstGradientStopColor(color: unknown): string | undefined {
+  if (!color || typeof color !== 'object') return undefined;
+  const stops = (color as { colorStops?: unknown }).colorStops;
+  if (!Array.isArray(stops) || stops.length === 0) return undefined;
+  const first = stops[0] as { color?: unknown } | undefined;
+  return typeof first?.color === 'string' ? first.color : undefined;
+}
+
+/**
+ * URL of a picture fill (`a:blipFill`) applied to a series, so the legend swatch
+ * can show the artwork instead of a palette color that appears nowhere in the plot.
+ */
+export function pickVisualPatternImage(
+  visual: Record<string, unknown> | undefined,
+): string | undefined {
+  const itemStyle = (visual?.itemStyle as Record<string, unknown> | undefined) ?? {};
+  const color = itemStyle.color;
+  if (!color || typeof color !== 'object') return undefined;
+  const image = (color as { image?: unknown }).image;
+  return typeof image === 'string' ? image : undefined;
 }
 
 export function lineLegendIconPath(): string {

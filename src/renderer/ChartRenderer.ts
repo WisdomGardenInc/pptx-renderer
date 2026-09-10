@@ -2370,7 +2370,12 @@ export function parseChartXml(
   chartPath?: string,
   chartSize?: ChartPixelSize,
 ): ParseChartResult {
-  const chartCtx = createChartRenderContext(chartXml, ctx);
+  const baseChartCtx = createChartRenderContext(chartXml, ctx);
+  // Series picture fills reference image parts through the chart's own rels, so
+  // relationship resolution inside this chart is scoped to the chart part.
+  const chartCtx: RenderContext = chartPath
+    ? { ...baseChartCtx, partPath: chartPath }
+    : baseChartCtx;
   const chartPalette = buildChartPalette(chartXml, chartCtx, chartPath);
   // Navigate: chartSpace > chart > plotArea
   const chart = chartXml.child('chart');

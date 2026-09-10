@@ -1,5 +1,5 @@
 import type * as echarts from 'echarts';
-import { getLegendOptionObject, pickVisualStringColor } from './legend';
+import { getLegendOptionObject, pickVisualPatternImage, pickVisualStringColor } from './legend';
 
 export function createLegendIcon(
   icon: string | undefined,
@@ -9,6 +9,7 @@ export function createLegendIcon(
   strokeWidth = 2,
   marker?: string,
   markerSizeOverride?: number,
+  patternImage?: string,
 ): SVGSVGElement | null {
   if (icon === 'none') return null;
 
@@ -95,11 +96,28 @@ export function createLegendIcon(
     return svg;
   }
 
+  const rectWidth = Math.max(2, width - 2);
+  const rectHeight = Math.max(2, height - 2);
+
+  if (patternImage) {
+    // One scaled copy cropped to the swatch reads better at legend size than the
+    // natural-size tiling the plot uses.
+    const image = document.createElementNS(ns, 'image');
+    image.setAttribute('x', '1');
+    image.setAttribute('y', '1');
+    image.setAttribute('width', String(rectWidth));
+    image.setAttribute('height', String(rectHeight));
+    image.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+    image.setAttribute('href', patternImage);
+    svg.appendChild(image);
+    return svg;
+  }
+
   const rect = document.createElementNS(ns, 'rect');
   rect.setAttribute('x', '1');
   rect.setAttribute('y', '1');
-  rect.setAttribute('width', String(Math.max(2, width - 2)));
-  rect.setAttribute('height', String(Math.max(2, height - 2)));
+  rect.setAttribute('width', String(rectWidth));
+  rect.setAttribute('height', String(rectHeight));
   rect.setAttribute('fill', color);
   svg.appendChild(rect);
   return svg;
@@ -143,6 +161,7 @@ export function buildCustomLegendOverlay(
     marker: string | undefined;
     markerSize: number | undefined;
     color: string;
+    patternImage: string | undefined;
     lineWidth: number;
   };
   const seriesList = Array.isArray(option.series)
@@ -185,6 +204,7 @@ export function buildCustomLegendOverlay(
       };
       const paletteIndex = seriesIndex >= 0 ? seriesIndex : index;
       const color = pickVisualStringColor(visual, palette[paletteIndex] ?? '#2f6f8f');
+      const patternImage = pickVisualPatternImage(visual);
       const lineWidth =
         typeof lineStyle.width === 'number' && Number.isFinite(lineStyle.width)
           ? Math.max(1, lineStyle.width)
@@ -200,6 +220,7 @@ export function buildCustomLegendOverlay(
         marker: itemMarker,
         markerSize,
         color,
+        patternImage,
         lineWidth,
       };
     })
@@ -274,6 +295,7 @@ export function buildCustomLegendOverlay(
       entry.lineWidth,
       entry.marker,
       iconMarkerSize,
+      entry.patternImage,
     );
     if (icon) row.appendChild(icon);
 

@@ -3,6 +3,8 @@ import { SafeXmlNode } from '../../parser/XmlParser';
 import { ptToPx } from '../../parser/units';
 import { resolveColor, resolveLineStyle } from '../StyleResolver';
 import { RenderContext } from '../RenderContext';
+import { findMediaByTarget, getOrCreateBlobUrl } from '../../utils/media';
+import { isExternalTargetMode } from '../../parser/RelParser';
 import type { ChartLineStyle, ChartLineType, DataPointStyle } from './types';
 
 export function resolveColorToHex(fillNode: SafeXmlNode, ctx: RenderContext): string | undefined {
@@ -63,6 +65,12 @@ export function extractSeriesColor(
     if (grad) return grad;
   }
 
+  const blipFill = spPr.child('blipFill');
+  if (blipFill.exists()) {
+    const pattern = buildSeriesPicturePattern(blipFill, ctx);
+    if (pattern) return pattern;
+  }
+
   const ln = spPr.child('ln');
   if (ln.exists()) {
     const lnFill = ln.child('solidFill');
@@ -73,6 +81,32 @@ export function extractSeriesColor(
   }
 
   return undefined;
+}
+
+/**
+ * Build an ECharts pattern fill for a series painted with a picture (`a:blipFill`).
+ *
+ * `c:pictureOptions/c:pictureFormat` says how the picture fills the bar: `stack`
+ * and `stackScale` tile it at its natural size, which is exactly a repeating
+ * canvas pattern. `stretch` (the default) should scale one copy to the bar, which
+ * a shape-independent pattern cannot express, so it tiles too — closer to the
+ * intended artwork than dropping the fill and falling back to a palette color.
+ *
+ * The URL is handed to zrender as a string: it loads the image itself and marks
+ * the element dirty when ready, so no preloading is needed here.
+ */
+function buildSeriesPicturePattern(blipFill: SafeXmlNode, ctx: RenderContext): object | undefined {
+  const embed = blipFill.child('blip').attr('embed');
+  if (!embed || !ctx.partPath) return undefined;
+
+  const rel = ctx.presentation.chartRels?.get(ctx.partPath)?.get(embed);
+  if (!rel || isExternalTargetMode(rel.targetMode)) return undefined;
+
+  const resolved = findMediaByTarget(rel.target, ctx.presentation.media);
+  if (!resolved) return undefined;
+
+  const url = getOrCreateBlobUrl(resolved.mediaPath, resolved.data, ctx.mediaUrlCache);
+  return { image: url, repeat: 'repeat' };
 }
 
 export function extractSeriesLineWidth(ser: SafeXmlNode): number | undefined {

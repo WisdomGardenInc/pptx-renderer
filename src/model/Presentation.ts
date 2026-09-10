@@ -45,6 +45,8 @@ export interface PresentationData {
   chartStyles?: Map<string, SafeXmlNode>;
   /** Chart color style parts keyed by chart part path. */
   chartColorStyles?: Map<string, SafeXmlNode>;
+  /** Chart relationships keyed by chart part path, for series picture fills. */
+  chartRels?: Map<string, Map<string, RelEntry>>;
   isWps: boolean;
 }
 
@@ -262,6 +264,7 @@ export function buildPresentation(
   const chartThemes = new Map<string, ThemeData>();
   const chartStyles = new Map<string, SafeXmlNode>();
   const chartColorStyles = new Map<string, SafeXmlNode>();
+  const chartRelsByPath = new Map<string, Map<string, RelEntry>>();
   for (const [chartPath, chartXml] of files.charts) {
     const chartRoot = parseXml(chartXml);
     if (chartRoot.exists()) {
@@ -272,6 +275,8 @@ export function buildPresentation(
     const chartRelsXml = files.chartRels?.get(chartRelsPath);
     if (!chartRelsXml) continue;
     const chartRels = parseRels(chartRelsXml);
+    // Kept whole: series spPr can reference an image part for a picture fill.
+    chartRelsByPath.set(chartPath, chartRels);
 
     const chartStyleRel = findRelByType(chartRels, 'chartStyle');
     if (chartStyleRel) {
@@ -404,6 +409,7 @@ export function buildPresentation(
     diagramDrawings: files.diagramDrawings,
     chartThemes,
     chartStyles,
+    chartRels: chartRelsByPath,
     chartColorStyles,
     isWps,
   };
