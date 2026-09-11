@@ -59,11 +59,6 @@
         justify-content: space-between;
         gap: 16px;
       }
-      .top-bar-left {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-      }
       .top-bar h1 {
         font-size: 17px;
         font-weight: 700;
@@ -93,6 +88,9 @@
         display: flex;
         align-items: center;
         gap: 8px;
+        /* Sits after .stats, whose margin-left:auto pins this group right.
+           Never let a long file name squeeze the picker. */
+        flex-shrink: 0;
       }
       .version-select {
         font-family: inherit;
@@ -1014,27 +1012,7 @@
   </head>
   <body>
     <div class="top-bar">
-      <div class="top-bar-left">
-        <h1>PPTX Renderer</h1>
-        <div class="version-picker">
-          <select
-            class="version-select"
-            id="version-select"
-            title="Renderer build used to render the deck"
-          >
-            <option value="source">Loading…</option>
-          </select>
-          <a
-            class="version-badge-link"
-            href="https://www.npmjs.com/package/@wisdomgarden/pptx-renderer"
-            target="_blank"
-            rel="noopener"
-            title="View this build on npm"
-            id="version-npm-link"
-            >npm ↗</a
-          >
-        </div>
-      </div>
+      <h1>PPTX Renderer</h1>
       <a
         class="github-link"
         href="https://github.com/WisdomGardenInc/pptx-renderer"
@@ -1069,6 +1047,25 @@
         <span id="slide-count" class="stat-item"></span>
         <span id="stat-sep-3" class="stat-sep" style="display: none">/</span>
         <span id="render-time" class="stat-item"></span>
+      </div>
+      <span class="divider"></span>
+      <div class="version-picker">
+        <select
+          class="version-select"
+          id="version-select"
+          title="Renderer build used to render the deck"
+        >
+          <option value="source">Loading…</option>
+        </select>
+        <a
+          class="version-badge-link"
+          href="https://www.npmjs.com/package/@wisdomgarden/pptx-renderer"
+          target="_blank"
+          rel="noopener"
+          title="View this build on npm"
+          id="version-npm-link"
+          >npm ↗</a
+        >
       </div>
     </div>
 
@@ -1331,6 +1328,8 @@
       async function switchRendererVersion(value) {
         if (value === activeVersion) return;
         const previous = activeVersion;
+        // Read before the old viewer is destroyed by the re-render below.
+        const slideIndex = viewer?.currentSlideIndex ?? 0;
         versionSelect.disabled = true;
         try {
           const mod = await loadRenderer(value);
@@ -1338,7 +1337,7 @@
           RECOMMENDED_ZIP_LIMITS = mod.RECOMMENDED_ZIP_LIMITS ?? RECOMMENDED_ZIP_LIMITS;
           activeVersion = value;
           syncVersionNpmLink();
-          if (cachedBuffer) await renderBuffer(cachedBuffer, cachedLabel, cachedBytes);
+          if (cachedBuffer) await renderBuffer(cachedBuffer, cachedLabel, cachedBytes, slideIndex);
         } catch (e) {
           versionSelect.value = previous;
           const errMsg = e instanceof Error ? e.message : String(e);
@@ -1446,7 +1445,10 @@
         bindEmptyActions();
       }
 
-      async function renderBuffer(buffer, label, fileBytes) {
+      // `restoreSlideIndex` is for re-renders of the deck already on screen (a
+      // renderer version switch). Opening a new file leaves it unset and starts
+      // at slide 1.
+      async function renderBuffer(buffer, label, fileBytes, restoreSlideIndex) {
         showError('');
         clearStats();
         resetSidePanel();
@@ -1483,6 +1485,18 @@
           showLoaded(true);
           searchSummary.textContent = 'Ready';
           setupThumbnails();
+
+          if (restoreSlideIndex) {
+            // 'auto': this is state restoration, not navigation — a smooth
+            // scroll from slide 1 would be a long animation nobody asked for.
+            // goToSlide clamps the index and mounts the slide when windowed.
+            // Best-effort, so a failed restore never reports the render as failed.
+            try {
+              await viewer.goToSlide(restoreSlideIndex, { behavior: 'auto', block: 'center' });
+            } catch (e) {
+              console.warn('Could not restore slide position:', e);
+            }
+          }
         } catch (e) {
           console.error('Render failed:', e);
           const errMsg = e instanceof Error ? e.message : String(e);
