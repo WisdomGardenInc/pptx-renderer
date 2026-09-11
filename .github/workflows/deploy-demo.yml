@@ -1,7 +1,13 @@
 name: Deploy Demo to GitHub Pages
 
+# The demo renders the working tree, so it is only current while it tracks main.
+# Deploying every push keeps that true without a paths filter deciding which
+# commits matter -- a filter that guessed wrong would leave the demo silently
+# stale, which is the failure this trigger exists to prevent.
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
