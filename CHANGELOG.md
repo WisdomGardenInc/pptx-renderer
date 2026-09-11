@@ -7,6 +7,31 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-11
+
+### Fixed
+
+- Arc warped text (`textArchUp`/`textArchDown`) along the baseline its `prstTxWarp` geometry
+  actually describes. The baseline was approximated with a fixed shallow quadratic that ignored
+  the preset's `adj` angle and sat at 36%/66% of the box height instead of on the inscribed
+  ellipse, so once each shape's rotation was applied the labels drifted off the artwork they
+  annotate. Derived from ECMA-376 `presetTextWarpDefinitions.xml`, emitting real elliptical arcs,
+  and the run is now placed by the paragraph's `algn` rather than always centred.
+- Load the pictures a chart paints its series with when `lazyMedia` is enabled. A series
+  `a:blipFill` is resolved while the ECharts option is assembled, which is synchronous, so under
+  `lazyMedia` the bytes were still behind the media resolver, the lookup missed, and the series was
+  painted with a palette colour instead of its artwork — silently, with no error. Chart image
+  parts are now resolved before the first render; slide media stays lazy.
+- Cascade the colour map slide -> layout -> master. A slide's `<a:masterClrMapping/>` means
+  "inherit", not "jump to the master `colorMap`", and PowerPoint writes it on nearly every slide,
+  so every layout-level `overrideClrMapping` was unreachable: a deck whose layout flips the map
+  back to light rendered with the master's dark mapping, white-on-dark where PowerPoint shows
+  dark-on-white.
+- Recognize the abbreviated ECMA-376 `ST_PresetColorVal` spellings. The preset table held only the
+  CSS names (`darkBlue`, `lightGreen`, `mediumPurple`), so all 43 abbreviated forms (`dkBlue`,
+  `ltGreen`, `medPurple`, ...) missed it and fell through to black. An unrecognized `prstClr` name
+  now falls back to neutral gray, which is distinguishable from a deliberate `val="black"`.
+
 ## [1.3.0] - 2026-09-10
 
 ### Added
