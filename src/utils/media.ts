@@ -2,6 +2,9 @@
  * Media utilities — MIME type detection, path resolution, and blob URL management.
  */
 
+import { isExternalTargetMode } from '../parser/RelParser';
+import type { RelEntry } from '../parser/RelParser';
+
 export interface ResolvedMedia {
   mediaPath: string;
   data: Uint8Array;
@@ -125,6 +128,46 @@ export async function findMediaByTargetAsync(
   const eager = findMediaByTarget(target, media);
   if (eager) return eager;
   return resolver?.resolve(target);
+}
+
+const IMAGE_REL_TYPE_SUFFIX = '/image';
+
+/**
+ * Load the pictures that chart series are painted with.
+ *
+ * A series picture fill (`a:blipFill`) becomes an ECharts pattern while the
+ * option is assembled, and that path is synchronous, so it can only read media
+ * already in memory. Under `lazyMedia` nothing is, and the series would quietly
+ * fall back to a palette color instead of its artwork. Every other renderer
+ * pairs its synchronous lookup with a `findMediaByTargetAsync` retry; the chart
+ * option has nowhere to await, so its media is resolved up front instead.
+ *
+ * Only chart image parts are fetched — never slide media, which stays lazy —
+ * and a picture that cannot be read is skipped rather than failing the load.
+ */
+export async function prefetchChartPictureMedia(
+  chartRels: Map<string, Map<string, RelEntry>> | undefined,
+  resolver: MediaResolver | undefined,
+): Promise<void> {
+  if (!resolver || !chartRels) return;
+
+  const targets = new Set<string>();
+  for (const rels of chartRels.values()) {
+    for (const rel of rels.values()) {
+      if (isExternalTargetMode(rel.targetMode)) continue;
+      if (!rel.type.endsWith(IMAGE_REL_TYPE_SUFFIX)) continue;
+      targets.add(rel.target);
+    }
+  }
+  if (targets.size === 0) return;
+
+  await Promise.all(
+    Array.from(targets, (target) =>
+      // The resolver caches into the shared media map, so the synchronous
+      // lookup in buildSeriesPicturePattern hits once this settles.
+      resolver.resolve(target).catch(() => undefined),
+    ),
+  );
 }
 
 /**

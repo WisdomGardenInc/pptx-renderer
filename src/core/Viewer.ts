@@ -4,6 +4,7 @@ import { buildPresentation, PresentationData } from '../model/Presentation';
 import { renderSlide as renderSlideInternal } from '../renderer/SlideRenderer';
 import type { SlideHandle } from '../renderer/SlideRenderer';
 import { isAllowedExternalUrl } from '../utils/urlSafety';
+import { prefetchChartPictureMedia } from '../utils/media';
 import {
   buildTextIndex,
   searchText as searchTextInIndex,
@@ -319,6 +320,12 @@ export class PptxViewer extends EventTarget {
     const presentation = useLazySlides
       ? buildPresentation(files, { lazySlides: true })
       : buildPresentation(files);
+    checkAborted();
+
+    // Chart series picture fills are resolved synchronously while the ECharts
+    // option is built, so their media has to be in memory before the first
+    // render. No-op unless lazyMedia deferred it.
+    await prefetchChartPictureMedia(presentation.chartRels, presentation.mediaResolver);
     checkAborted();
 
     this.load(presentation);
