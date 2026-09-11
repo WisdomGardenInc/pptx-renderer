@@ -120,8 +120,10 @@ Three-step: `schemeClr` → master `colorMap` remap (e.g. "tx1"→"dk1") → the
 3D effects (`a:sp3d` / `a:scene3d` / `bevelT` / `lightRig`; the `*3DChart` types render
 flat), animations/transitions (`p:timing`, `p:anim`, `p:bldLst`, `p:transition`),
 equations (OMML), slide notes / notes master / handout master and comments (`ZipParser`
-does not collect those parts), non-3D `surfaceChart`, chartEx charts
-(`cx:` namespace — treemap, sunburst, waterfall, funnel, boxWhisker, histogram),
+does not collect those parts), non-3D `surfaceChart`, the chartEx layouts
+beyond waterfall and funnel (`cx:` namespace — treemap, sunburst, boxWhisker,
+histogram, Pareto, regionMap; these report an unsupported-layout notice rather
+than drawing the data wrongly),
 encrypted packages, ink annotations (`p:contentPart`), `a:clrChange`, and `docProps`
 metadata.
 
@@ -135,6 +137,7 @@ Already supported — do not re-implement (this list used to claim otherwise):
 | Secondary value axes (matched by `axId`)              | `ChartRenderer.ts:2366`                                                               |
 | OLE static preview pictures                           | `RenderableChild.ts:126` → `parseOleFrameAsPicture` (a preview, not an OLE engine)    |
 | `ofPieChart` (pie of pie / bar of pie)                | `chart/ofPie.ts` holds the split rule; `ChartRenderer.ts` → `buildOfPieChartOption`   |
+| chartEx waterfall and funnel (`cx:chartSpace`)        | `chart/chartEx.ts`; dispatched at the top of `parseChartXml`                          |
 
 Metafiles are partially supported. Shared GDI state (pens, brushes, stock objects, map
 modes, COLORREF, SVG serialization) lives in `src/utils/gdi.ts`; each format's record

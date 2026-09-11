@@ -22,6 +22,7 @@ import {
 import { parseOoxmlBoolElement } from './chart/ooxml';
 import { parseDataLabels, parsePointDataLabelOverrides } from './chart/dataLabels';
 import { parseExplosion, parseSeries } from './chart/series';
+import { isChartExSpace, parseChartExOption } from './chart/chartEx';
 import {
   aggregateSliceName,
   computeOfPieSplit,
@@ -2594,6 +2595,22 @@ export function parseChartXml(
   chartSize?: ChartPixelSize,
 ): ParseChartResult {
   const baseChartCtx = createChartRenderContext(chartXml, ctx);
+
+  // chartex parts share the `chartSpace` element name but nothing else, so they
+  // are diverted before any of the classic plotArea handling below.
+  if (isChartExSpace(chartXml)) {
+    const chartExOption = parseChartExOption(
+      chartXml,
+      buildChartPalette(chartXml, baseChartCtx, chartPath),
+    );
+    if (chartExOption) {
+      return {
+        option: chartExOption,
+        chartFrameStyle: extractChartFrameStyle(chartXml, baseChartCtx),
+      };
+    }
+  }
+
   // Series picture fills reference image parts through the chart's own rels, so
   // relationship resolution inside this chart is scoped to the chart part.
   const chartCtx: RenderContext = chartPath

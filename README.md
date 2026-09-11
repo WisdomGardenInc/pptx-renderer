@@ -596,7 +596,7 @@ Full OOXML text cascade: master → layout → shape → paragraph → run. Supp
 
 ### Charts via ECharts
 
-Powered by [ECharts](https://echarts.apache.org/). Supports Bar/Column (clustered, stacked, 100% stacked), Line/Area (standard, stacked, 100% stacked), Pie, Pie-of-Pie / Bar-of-Pie, multi-ring Doughnut, Radar, Scatter, Bubble, and Stock/Candlestick charts, with axis labels, legends, data labels, grid lines, chart color-style palettes, marker symbols, and custom number formats.
+Powered by [ECharts](https://echarts.apache.org/). Supports Bar/Column (clustered, stacked, 100% stacked), Line/Area (standard, stacked, 100% stacked), Pie, Pie-of-Pie / Bar-of-Pie, multi-ring Doughnut, Radar, Scatter, Bubble, Stock/Candlestick, and the Office 2016 chartex Waterfall and Funnel charts, with axis labels, legends, data labels, grid lines, chart color-style palettes, marker symbols, and custom number formats.
 
 The renderer registers only the ECharts charts, components, features, and Canvas renderer
 that it uses. Bundler consumers keep ECharts external; the standalone browser entry
@@ -749,7 +749,7 @@ Dev pages at `http://127.0.0.1:5173`:
 
 ## What's Not Yet Supported
 
-3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, shadow/reflection/glow effects, executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG; the remaining metafile record families (text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
+3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, chartex layouts other than waterfall and funnel (treemap, sunburst, box & whisker, histogram, Pareto, region map), shadow/reflection/glow effects, executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG; the remaining metafile record families (text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
 
 ## FAQ
 
