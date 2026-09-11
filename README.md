@@ -104,11 +104,12 @@ const viewer = await PptxViewer.open(buffer, container, {
 ### Optional PDF.js Fallback for SmartArt/EMF Preview Images
 
 PowerPoint often stores SmartArt or pasted vector artwork as EMF fallback images. This
-library does **not** implement a full EMF/WMF vector renderer. It handles the common
-Office fallback cases: an EMF carrying an embedded PDF preview, an embedded bitmap
-preview, or a plain GDI path drawing (paths, polygons, beziers, solid brushes and pens),
-which is converted to SVG with no extra dependency. Records outside that subset — text
-output, bitmap blits, clipping regions and arcs — are skipped.
+library does **not** implement a complete EMF/WMF renderer. It handles the common Office
+cases: an EMF carrying an embedded PDF preview, an embedded bitmap preview, or a plain
+GDI drawing — paths, polygons, beziers, solid brushes and pens — converted to SVG with no
+extra dependency. WMF is converted the same way (polygons, rectangles, ellipses,
+arc/pie/chord, pens and brushes). Records outside that subset — text output, bitmap
+blits, clipping regions, and for WMF hatch/pattern textures — are skipped.
 
 For EMF files with embedded PDF previews, install `pdfjs-dist` and pass explicit asset
 URLs. This keeps PDF.js optional and avoids forcing every consumer bundle to include it.
@@ -614,7 +615,7 @@ Supported chart combinations include combo charts and secondary axes. Sparse sca
 ### SmartArt, Tables, Images & More
 
 - **SmartArt**: renders available PowerPoint diagram fallback data; individual layout fidelity varies. EMF-embedded PDF previews can be rendered with optional [pdfjs-dist](https://mozilla.github.io/pdf.js/) configuration.
-- **EMF pictures**: embedded PDF previews (via PDF.js), embedded DIB bitmaps, and plain GDI path drawings converted to SVG.
+- **EMF/WMF pictures**: EMF embedded PDF previews (via PDF.js), embedded DIB bitmaps, and plain GDI path drawings converted to SVG; WMF drawing records converted to SVG with no extra dependency.
 - **Tables**: OOXML table styles, merged-cell inside/outer borders, conditional corner styles, explicit no-fill border clearing, and direct-cell overrides
 - **Images**: raster/SVG previews with crop and geometry clipping; grayscale, duotone, luminance, and biLevel effects on clipped pictures. Embedded audio/video playback uses browser-supported codecs, with posters/placeholders when playback data is unavailable.
 - **Groups**: coordinate remapping with recursive child rendering; diagram-specific compensation requires matching diagram layout provenance
@@ -748,7 +749,7 @@ Dev pages at `http://127.0.0.1:5173`:
 
 ## What's Not Yet Supported
 
-3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), full EMF/WMF vector rendering, shadow/reflection/glow effects, executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF path drawings are converted to SVG; WMF and the remaining EMF record families (text output, blits, clipping, arcs) stay excluded.
+3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, shadow/reflection/glow effects, executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG; the remaining metafile record families (text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
 
 ## FAQ
 

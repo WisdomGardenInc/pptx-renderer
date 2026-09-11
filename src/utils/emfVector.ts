@@ -17,7 +17,42 @@
  * text output, bitmap blits, clipping regions, arcs, gradients and hatch patterns.
  * The result is therefore a best-effort approximation, but a partial drawing beats
  * the blank frame the caller would otherwise show.
+ *
+ * GDI state, colour conversion and SVG serialization are shared with the WMF
+ * converter in `gdi.ts`; this module only decodes EMF's own record framing.
  */
+
+import {
+  ALTERNATE_FILL,
+  BS_NULL,
+  Brush,
+  DeviceContext,
+  IDENTITY,
+  MAX_PATHS,
+  MAX_POINTS_PER_RECORD,
+  MAX_RECORDS,
+  MetafileVectorImage,
+  PS_NULL,
+  PS_STYLE_MASK,
+  Pen,
+  Point,
+  STOCK_OBJECT_FLAG,
+  Xform,
+  colorRefToHex,
+  createDeviceContext,
+  ellipseSegments,
+  fmtPoint,
+  isPen,
+  mapScale,
+  metafileVectorToSvg,
+  multiplyXform,
+  polyToSegments,
+  rectCorners,
+  stockObject,
+} from './gdi';
+
+/** A converted EMF drawing. Coordinates are EMF device units. */
+export type EmfVectorImage = MetafileVectorImage;
 
 // --- Record types -----------------------------------------------------------
 const EMR_HEADER = 1;
@@ -63,119 +98,6 @@ const EMR_POLYPOLYLINE16 = 90;
 const EMR_POLYPOLYGON16 = 91;
 const EMR_EXTCREATEPEN = 95;
 
-// --- Map modes --------------------------------------------------------------
-const MM_TEXT = 1;
-const MM_LOMETRIC = 2;
-const MM_HIMETRIC = 3;
-const MM_LOENGLISH = 4;
-const MM_HIENGLISH = 5;
-const MM_TWIPS = 6;
-const MM_ISOTROPIC = 7;
-const MM_ANISOTROPIC = 8;
-
-/** Millimetres per logical unit for the fixed (non-scalable) map modes. */
-const FIXED_MODE_MM_PER_UNIT: Record<number, number> = {
-  [MM_LOMETRIC]: 0.1,
-  [MM_HIMETRIC]: 0.01,
-  [MM_LOENGLISH]: 0.254,
-  [MM_HIENGLISH]: 0.0254,
-  [MM_TWIPS]: 25.4 / 1440,
-};
-
-// --- Object handles ---------------------------------------------------------
-const STOCK_OBJECT_FLAG = 0x80000000;
-const WHITE_BRUSH = 0x80000000;
-const LTGRAY_BRUSH = 0x80000001;
-const GRAY_BRUSH = 0x80000002;
-const DKGRAY_BRUSH = 0x80000003;
-const BLACK_BRUSH = 0x80000004;
-const NULL_BRUSH = 0x80000005;
-const WHITE_PEN = 0x80000006;
-const BLACK_PEN = 0x80000007;
-const NULL_PEN = 0x80000008;
-
-const BS_NULL = 1;
-const PS_STYLE_MASK = 0x0000000f;
-const PS_NULL = 5;
-
-const ALTERNATE_FILL = 1;
-
-// --- Safety limits ----------------------------------------------------------
-const MAX_RECORDS = 500_000;
-const MAX_PATHS = 100_000;
-const MAX_POINTS_PER_RECORD = 100_000;
-
-/** A single filled and/or stroked contour, in EMF device units. */
-export interface EmfVectorPath {
-  /** SVG path data. */
-  d: string;
-  /** Fill color as `#RRGGBB`, or `none`. */
-  fill: string;
-  fillRule: 'nonzero' | 'evenodd';
-  /** Stroke color as `#RRGGBB`, or `none`. */
-  stroke: string;
-  /** Stroke width in device units (0 means a hairline). */
-  strokeWidth: number;
-}
-
-/** A converted EMF drawing. Coordinates are EMF device units. */
-export interface EmfVectorImage {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  paths: EmfVectorPath[];
-}
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface Brush {
-  /** False for BS_NULL (hollow) brushes. */
-  visible: boolean;
-  color: string;
-}
-
-interface Pen {
-  /** False for PS_NULL pens. */
-  visible: boolean;
-  color: string;
-  /** Width in logical units; 0 means a cosmetic one-pixel pen. */
-  width: number;
-}
-
-/** 2x3 affine matrix (GDI XFORM), mapping world space to page space. */
-interface Xform {
-  m11: number;
-  m12: number;
-  m21: number;
-  m22: number;
-  dx: number;
-  dy: number;
-}
-
-const IDENTITY: Xform = { m11: 1, m12: 0, m21: 0, m22: 1, dx: 0, dy: 0 };
-
-interface DeviceContext {
-  brush: Brush;
-  pen: Pen;
-  fillRule: 'nonzero' | 'evenodd';
-  mapMode: number;
-  winOrg: Point;
-  winExt: Point;
-  vpOrg: Point;
-  vpExt: Point;
-  xform: Xform;
-}
-
-/**
- * Parse an EMF file into SVG-ready vector geometry.
- *
- * Returns `null` when the data is not a valid EMF or when no drawable geometry
- * could be recovered, so callers can fall back to their existing behaviour.
- */
 export function parseEmfVector(data: Uint8Array): EmfVectorImage | null {
   if (data.length < 88) return null;
 
@@ -186,18 +108,8 @@ export function parseEmfVector(data: Uint8Array): EmfVectorImage | null {
   const frame = readViewBox(view, headerSize);
   if (!frame) return null;
 
-  const paths: EmfVectorPath[] = [];
-  let dc: DeviceContext = {
-    brush: { visible: true, color: '#FFFFFF' },
-    pen: { visible: true, color: '#000000', width: 0 },
-    fillRule: 'evenodd',
-    mapMode: MM_TEXT,
-    winOrg: { x: 0, y: 0 },
-    winExt: { x: 1, y: 1 },
-    vpOrg: { x: 0, y: 0 },
-    vpExt: { x: 1, y: 1 },
-    xform: IDENTITY,
-  };
+  const paths: EmfVectorImage['paths'] = [];
+  let dc: DeviceContext = createDeviceContext();
   const dcStack: DeviceContext[] = [];
   const objects = new Map<number, Brush | Pen>();
 
@@ -374,13 +286,13 @@ export function parseEmfVector(data: Uint8Array): EmfVectorImage | null {
           if (handle & STOCK_OBJECT_FLAG) {
             const stock = stockObject(handle);
             if (stock) {
-              if ('width' in stock) dc.pen = stock;
+              if (isPen(stock)) dc.pen = stock;
               else dc.brush = stock;
             }
           } else {
             const obj = objects.get(handle);
             if (obj) {
-              if ('width' in obj) dc.pen = obj;
+              if (isPen(obj)) dc.pen = obj;
               else dc.brush = obj;
             }
           }
@@ -508,12 +420,7 @@ export function parseEmfVector(data: Uint8Array): EmfVectorImage | null {
         const top = view.getInt32(body + 4, true);
         const right = view.getInt32(body + 8, true);
         const bottom = view.getInt32(body + 12, true);
-        const corners = [
-          { x: left, y: top },
-          { x: right, y: top },
-          { x: right, y: bottom },
-          { x: left, y: bottom },
-        ];
+        const corners = rectCorners(left, top, right, bottom);
         if (type === EMR_RECTANGLE) {
           draw(polyToSegments(corners, true, toDevice), true, true);
         } else {
@@ -535,32 +442,7 @@ export function parseEmfVector(data: Uint8Array): EmfVectorImage | null {
 }
 
 /** Serialize a converted drawing as a standalone SVG document. */
-export function emfVectorToSvg(image: EmfVectorImage): string {
-  const body = image.paths
-    .map((p) => {
-      const attrs = [`d="${p.d}"`];
-      attrs.push(`fill="${p.fill}"`);
-      if (p.fill !== 'none' && p.fillRule === 'evenodd') attrs.push('fill-rule="evenodd"');
-      if (p.stroke !== 'none') {
-        attrs.push(`stroke="${p.stroke}"`);
-        // A zero-width GDI pen is cosmetic: one device pixel.
-        attrs.push(`stroke-width="${fmtNumber(p.strokeWidth || 1)}"`);
-        attrs.push('stroke-linejoin="round"', 'stroke-linecap="round"');
-      }
-      return `<path ${attrs.join(' ')}/>`;
-    })
-    .join('');
-  const viewBox =
-    `${fmtNumber(image.x)} ${fmtNumber(image.y)} ` +
-    `${fmtNumber(image.width)} ${fmtNumber(image.height)}`;
-  // Explicit width/height give the document an intrinsic size, so it also works
-  // as an <img> source or CSS background rather than defaulting to 300x150.
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${fmtNumber(image.width)}" ` +
-    `height="${fmtNumber(image.height)}" viewBox="${viewBox}" ` +
-    `preserveAspectRatio="none">${body}</svg>`
-  );
-}
+export const emfVectorToSvg = metafileVectorToSvg;
 
 // ---------------------------------------------------------------------------
 // Header helpers
@@ -621,47 +503,6 @@ function readPixelsPerMm(view: DataView, headerSize: number): Point | null {
   if (devX <= 0 || devY <= 0 || mmX <= 0 || mmY <= 0) return null;
   return { x: devX / mmX, y: devY / mmY };
 }
-
-// ---------------------------------------------------------------------------
-// Coordinate mapping
-// ---------------------------------------------------------------------------
-
-/** Logical-to-device scale factors implied by the current map mode. */
-function mapScale(dc: DeviceContext, pxPerMm: Point | null): { sx: number; sy: number } {
-  if (dc.mapMode === MM_ISOTROPIC || dc.mapMode === MM_ANISOTROPIC) {
-    const sx = dc.winExt.x !== 0 ? dc.vpExt.x / dc.winExt.x : 1;
-    const sy = dc.winExt.y !== 0 ? dc.vpExt.y / dc.winExt.y : 1;
-    if (dc.mapMode === MM_ISOTROPIC) {
-      // Isotropic keeps a 1:1 aspect ratio; GDI uses the smaller magnitude.
-      const s = Math.min(Math.abs(sx), Math.abs(sy));
-      return { sx: Math.sign(sx) * s || s, sy: Math.sign(sy) * s || s };
-    }
-    return { sx, sy };
-  }
-
-  const mmPerUnit = FIXED_MODE_MM_PER_UNIT[dc.mapMode];
-  if (mmPerUnit !== undefined && pxPerMm) {
-    // The metric modes have a y axis pointing up, unlike device space.
-    return { sx: mmPerUnit * pxPerMm.x, sy: -mmPerUnit * pxPerMm.y };
-  }
-
-  return { sx: 1, sy: 1 }; // MM_TEXT and anything unrecognised
-}
-
-function multiplyXform(a: Xform, b: Xform): Xform {
-  return {
-    m11: a.m11 * b.m11 + a.m12 * b.m21,
-    m12: a.m11 * b.m12 + a.m12 * b.m22,
-    m21: a.m21 * b.m11 + a.m22 * b.m21,
-    m22: a.m21 * b.m12 + a.m22 * b.m22,
-    dx: a.dx * b.m11 + a.dy * b.m21 + b.dx,
-    dy: a.dx * b.m12 + a.dy * b.m22 + b.dy,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Record readers
-// ---------------------------------------------------------------------------
 
 function readPointL(view: DataView, offset: number): Point {
   return { x: view.getInt32(offset, true), y: view.getInt32(offset + 4, true) };
@@ -734,89 +575,4 @@ function readPointArray(view: DataView, offset: number, count: number, is16Bit: 
       : { x: view.getInt32(offset + i * 8, true), y: view.getInt32(offset + i * 8 + 4, true) };
   }
   return points;
-}
-
-// ---------------------------------------------------------------------------
-// Geometry helpers
-// ---------------------------------------------------------------------------
-
-function polyToSegments(points: Point[], closed: boolean, toDevice: (p: Point) => Point): string[] {
-  const segments = [`M${fmtPoint(toDevice(points[0]))}`];
-  for (let i = 1; i < points.length; i++) {
-    segments.push(`L${fmtPoint(toDevice(points[i]))}`);
-  }
-  if (closed) segments.push('Z');
-  return segments;
-}
-
-/** Approximate an axis-aligned ellipse inscribed in `corners` with four cubic arcs. */
-function ellipseSegments(corners: Point[], toDevice: (p: Point) => Point): string {
-  const [tl, , br] = corners;
-  const cx = (tl.x + br.x) / 2;
-  const cy = (tl.y + br.y) / 2;
-  const rx = (br.x - tl.x) / 2;
-  const ry = (br.y - tl.y) / 2;
-  const k = 0.5522847498307936; // 4/3 * (sqrt(2) - 1)
-  const kx = rx * k;
-  const ky = ry * k;
-  const p = (x: number, y: number) => fmtPoint(toDevice({ x, y }));
-  return (
-    `M${p(cx - rx, cy)} ` +
-    `C${p(cx - rx, cy - ky)} ${p(cx - kx, cy - ry)} ${p(cx, cy - ry)} ` +
-    `C${p(cx + kx, cy - ry)} ${p(cx + rx, cy - ky)} ${p(cx + rx, cy)} ` +
-    `C${p(cx + rx, cy + ky)} ${p(cx + kx, cy + ry)} ${p(cx, cy + ry)} ` +
-    `C${p(cx - kx, cy + ry)} ${p(cx - rx, cy + ky)} ${p(cx - rx, cy)} Z`
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Value formatting
-// ---------------------------------------------------------------------------
-
-/** A GDI COLORREF is `0x00bbggrr`. */
-function colorRefToHex(colorRef: number): string {
-  const r = colorRef & 0xff;
-  const g = (colorRef >> 8) & 0xff;
-  const b = (colorRef >> 16) & 0xff;
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
-
-function toHex(value: number): string {
-  return value.toString(16).padStart(2, '0').toUpperCase();
-}
-
-/** Round to 3 decimals and drop trailing zeroes, keeping the SVG compact. */
-function fmtNumber(value: number): string {
-  if (!Number.isFinite(value)) return '0';
-  const rounded = Math.round(value * 1000) / 1000;
-  return Object.is(rounded, -0) ? '0' : String(rounded);
-}
-
-function fmtPoint(p: Point): string {
-  return `${fmtNumber(p.x)},${fmtNumber(p.y)}`;
-}
-
-function stockObject(handle: number): Brush | Pen | null {
-  switch (handle >>> 0) {
-    case WHITE_BRUSH:
-      return { visible: true, color: '#FFFFFF' };
-    case LTGRAY_BRUSH:
-      return { visible: true, color: '#C0C0C0' };
-    case GRAY_BRUSH:
-      return { visible: true, color: '#808080' };
-    case DKGRAY_BRUSH:
-      return { visible: true, color: '#404040' };
-    case BLACK_BRUSH:
-      return { visible: true, color: '#000000' };
-    case NULL_BRUSH:
-      return { visible: false, color: '#000000' };
-    case WHITE_PEN:
-      return { visible: true, color: '#FFFFFF', width: 0 };
-    case BLACK_PEN:
-      return { visible: true, color: '#000000', width: 0 };
-    case NULL_PEN:
-      return { visible: false, color: '#000000', width: 0 };
-    default:
-      return null;
-  }
 }

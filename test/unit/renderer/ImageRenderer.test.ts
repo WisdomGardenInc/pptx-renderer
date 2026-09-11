@@ -912,12 +912,11 @@ describe('renderImage', () => {
       expect(el.textContent).toContain('Image not found');
     });
 
-    it('shows unsupported format placeholder for WMF', () => {
+    it('shows the not-found placeholder for a WMF whose media is missing', () => {
       const ctx = createMockRenderContext();
       ctx.slide.rels.set('rId1', { type: 'image', target: 'ppt/media/image1.wmf' });
       const el = renderImage(createPicNode(), ctx);
-      expect(el.textContent).toContain('Unsupported format');
-      expect(el.textContent).toContain('WMF');
+      expect(el.textContent).toContain('Image not found');
     });
   });
 
@@ -1709,14 +1708,14 @@ describe('renderImage', () => {
       expect(placeholder!.style.display).toBe('flex');
     });
 
-    it('renders unsupported format placeholder with correct styling', () => {
+    it('leaves a WMF that yields no geometry transparent rather than marked', () => {
+      // Matching EMF: a visible error box is an artifact PowerPoint never shows.
       const ctx = createMockRenderContext();
       ctx.slide.rels.set('rId1', { type: 'image', target: 'ppt/media/image1.wmf' });
-      const node = createPicNode({ blipEmbed: 'rId1' });
-      const el = renderImage(node, ctx);
-      const placeholder = el.querySelector('div');
-      expect(placeholder).not.toBeNull();
-      expect(placeholder!.style.flexDirection).toBe('column');
+      ctx.presentation.media.set('ppt/media/image1.wmf', new Uint8Array([0x01, 0x02]));
+      const el = renderImage(createPicNode({ blipEmbed: 'rId1' }), ctx);
+      expect(el.textContent).toBe('');
+      expect(el.querySelector('img')).toBeNull();
     });
   });
 
@@ -3132,6 +3131,68 @@ describe('renderImage', () => {
   // ---------------------------------------------------------------------------
   // EMF rendering paths (lines 383–481)
   // ---------------------------------------------------------------------------
+
+  describe('WMF rendering', () => {
+    /** A placeable WMF that fills one red rectangle across a 200x100 window. */
+    function buildWmf(): Uint8Array {
+      // A record is [size (a 32-bit word count, so two 16-bit slots), func, params].
+      const rec = (func: number, params: number[]): number[] => [
+        3 + params.length,
+        0,
+        func,
+        ...params,
+      ];
+      const records = [
+        ...rec(0x020b, [0, 0]), // SETWINDOWORG y,x
+        ...rec(0x020c, [100, 200]), // SETWINDOWEXT height,width
+        ...rec(0x041b, [100, 200, 0, 0]), // RECTANGLE bottom,right,top,left
+        ...rec(0x0000, []), // EOF
+      ];
+
+      const buf = new Uint8Array(22 + 18 + records.length * 2);
+      const view = new DataView(buf.buffer);
+      view.setUint32(0, 0x9ac6cdd7, true); // placeable key
+      [0, 0, 200, 100].forEach((v, i) => view.setInt16(6 + i * 2, v, true));
+      view.setUint16(14, 96, true); // inch
+      view.setUint16(22, 1, true); // METAHEADER Type
+      view.setUint16(24, 9, true); // HeaderSize, in words
+      view.setUint16(26, 0x0300, true); // Version
+      records.forEach((w, i) => view.setUint16(40 + i * 2, w, true));
+      return buf;
+    }
+
+    function createWmfCtx(data: Uint8Array): RenderContext {
+      const ctx = createMockRenderContext();
+      ctx.slide.rels.set('rId1', { type: 'image', target: 'ppt/media/image1.wmf' });
+      ctx.presentation.media.set('ppt/media/image1.wmf', data);
+      return ctx;
+    }
+
+    it('renders a WMF as an SVG blob image instead of a placeholder', () => {
+      const ctx = createWmfCtx(buildWmf());
+      const el = renderImage(createPicNode({ blipEmbed: 'rId1' }), ctx);
+
+      const img = el.querySelector('img') as HTMLImageElement;
+      expect(img).not.toBeNull();
+      expect(img.src.startsWith('blob:')).toBe(true);
+      expect(el.textContent).not.toContain('Unsupported format');
+    });
+
+    it('caches the converted SVG under a WMF-specific key', () => {
+      const ctx = createWmfCtx(buildWmf());
+      const el = renderImage(createPicNode({ blipEmbed: 'rId1' }), ctx);
+      const img = el.querySelector('img') as HTMLImageElement;
+      expect(ctx.mediaUrlCache.get('ppt/media/image1.wmf:wmf-vector')).toBe(img.src);
+    });
+
+    it('reuses a cached conversion rather than converting twice', () => {
+      const ctx = createWmfCtx(buildWmf());
+      ctx.mediaUrlCache.set('ppt/media/image1.wmf:wmf-vector', 'blob:cached-wmf');
+      const el = renderImage(createPicNode({ blipEmbed: 'rId1' }), ctx);
+      const img = el.querySelector('img') as HTMLImageElement;
+      expect(img.src).toBe('blob:cached-wmf');
+    });
+  });
 
   describe('EMF rendering — renderEmf dispatcher', () => {
     function createEmfCtx(emfData?: Uint8Array): RenderContext {

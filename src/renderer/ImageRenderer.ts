@@ -4,17 +4,14 @@
 
 import { PicNodeData } from '../model/nodes/PicNode';
 import { RenderContext } from './RenderContext';
-import {
-  findMediaByTarget,
-  findMediaByTargetAsync,
-  getOrCreateBlobUrl,
-  resolveMediaPath,
-} from '../utils/media';
+import { findMediaByTarget, findMediaByTargetAsync, getOrCreateBlobUrl } from '../utils/media';
 import { isExternalTargetMode, RelEntry } from '../parser/RelParser';
 import { resolveColor, resolveFill, resolveLineStyle } from './StyleResolver';
 import { hexToRgb } from '../utils/color';
 import { parseEmfContent } from '../utils/emfParser';
 import { EmfVectorImage, emfVectorToSvg } from '../utils/emfVector';
+import { MetafileVectorImage } from '../utils/gdi';
+import { parseWmfVector } from '../utils/wmfVector';
 import { renderPdfToImage } from '../utils/pdfRenderer';
 import { emuToPx } from '../parser/units';
 import { SafeXmlNode } from '../parser/XmlParser';
@@ -25,11 +22,13 @@ import { getPresetShapePath } from '../shapes/presets';
 import { splitTiledPatternFillCss } from './cssValues';
 
 /**
- * Check if a file extension is an unsupported legacy format (WMF only now; EMF is handled).
+ * Metafile formats no browser can display directly. Pictures go through the
+ * converters below, but contexts that need a plain URL (a video poster, say)
+ * have nothing to hand an `<img>` and skip the media instead.
  */
 function isUnsupportedFormat(path: string): boolean {
   const ext = path.split('.').pop()?.toLowerCase() || '';
-  return ext === 'wmf';
+  return ext === 'wmf' || ext === 'emf';
 }
 
 /**
@@ -38,6 +37,14 @@ function isUnsupportedFormat(path: string): boolean {
 function isEmfFormat(path: string): boolean {
   const ext = path.split('.').pop()?.toLowerCase() || '';
   return ext === 'emf';
+}
+
+/**
+ * Check if a file path is a WMF image.
+ */
+function isWmfFormat(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() || '';
+  return ext === 'wmf';
 }
 
 let pictureClipPathIdCounter = 0;
@@ -142,12 +149,6 @@ export function renderImage(node: PicNodeData, ctx: RenderContext): HTMLElement 
         return wrapper;
       }
     } else {
-      const mediaPathForType = resolveMediaPath(rel.target);
-      if (isUnsupportedFormat(mediaPathForType)) {
-        renderUnsupportedPlaceholder(wrapper, mediaPathForType);
-        return wrapper;
-      }
-
       const resolved = findMediaByTarget(rel.target, ctx.presentation.media);
       if (!resolved) {
         if (ctx.presentation.mediaResolver) {
@@ -222,6 +223,13 @@ function renderResolvedImage(
   if (isEmfFormat(mediaPath)) {
     const emfData = data instanceof Uint8Array ? data : new Uint8Array(data);
     return renderEmf(emfData, node, ctx, wrapper, mediaPath);
+  }
+
+  // Handle WMF images — convert GDI drawing records to SVG
+  if (isWmfFormat(mediaPath)) {
+    const wmfData = data instanceof Uint8Array ? data : new Uint8Array(data);
+    renderWmf(wmfData, node, ctx, wrapper, mediaPath);
+    return;
   }
 
   const url = getOrCreateBlobUrl(mediaPath, data, ctx.mediaUrlCache);
@@ -914,36 +922,6 @@ function renderPlaceholder(wrapper: HTMLElement, message: string): void {
   wrapper.appendChild(placeholder);
 }
 
-/**
- * Render a placeholder for unsupported image formats (WMF).
- */
-function renderUnsupportedPlaceholder(wrapper: HTMLElement, path: string): void {
-  const ext = path.split('.').pop()?.toUpperCase() || 'Unknown';
-  const placeholder = document.createElement('div');
-  placeholder.style.width = '100%';
-  placeholder.style.height = '100%';
-  placeholder.style.display = 'flex';
-  placeholder.style.flexDirection = 'column';
-  placeholder.style.alignItems = 'center';
-  placeholder.style.justifyContent = 'center';
-  placeholder.style.backgroundColor = '#f5f5f5';
-  placeholder.style.color = '#999';
-  placeholder.style.fontSize = '11px';
-  placeholder.style.border = '1px dashed #ddd';
-
-  const icon = document.createElement('div');
-  icon.style.fontSize = '24px';
-  icon.style.marginBottom = '4px';
-  icon.textContent = '\uD83D\uDDBC'; // framed picture emoji
-
-  const label = document.createElement('div');
-  label.textContent = `Unsupported format: ${ext}`;
-
-  placeholder.appendChild(icon);
-  placeholder.appendChild(label);
-  wrapper.appendChild(placeholder);
-}
-
 // ---------------------------------------------------------------------------
 // EMF Rendering
 // ---------------------------------------------------------------------------
@@ -1021,6 +999,25 @@ function renderEmfPdf(
 }
 
 /**
+ * Render a WMF by converting its GDI drawing records into an SVG image.
+ *
+ * A file that yields no geometry is left transparent rather than marked with a
+ * placeholder, matching how EMF handles the same case: a visible error box
+ * pollutes the slide with an artifact PowerPoint never shows.
+ */
+function renderWmf(
+  data: Uint8Array,
+  node: PicNodeData,
+  ctx: RenderContext,
+  wrapper: HTMLElement,
+  mediaPath: string,
+): void {
+  const image = parseWmfVector(data);
+  if (!image) return;
+  renderMetafileVector(image, node, wrapper, ctx, `${mediaPath}:wmf-vector`);
+}
+
+/**
  * Render a vector EMF by converting its GDI drawing records into an SVG image.
  */
 function renderEmfVector(
@@ -1030,7 +1027,17 @@ function renderEmfVector(
   ctx: RenderContext,
   mediaPath: string,
 ): void {
-  const cacheKey = `${mediaPath}:emf-vector`;
+  renderMetafileVector(image, node, wrapper, ctx, `${mediaPath}:emf-vector`);
+}
+
+/** Cache a converted metafile as an SVG blob and render it. */
+function renderMetafileVector(
+  image: MetafileVectorImage,
+  node: PicNodeData,
+  wrapper: HTMLElement,
+  ctx: RenderContext,
+  cacheKey: string,
+): void {
   let url = ctx.mediaUrlCache.get(cacheKey);
   if (!url) {
     const blob = new Blob([emfVectorToSvg(image)], { type: 'image/svg+xml' });

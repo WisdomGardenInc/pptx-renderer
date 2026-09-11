@@ -117,11 +117,33 @@ Three-step: `schemeClr` → master `colorMap` remap (e.g. "tx1"→"dk1") → the
 
 ### What's NOT Supported
 
-3D effects, animations/transitions, equations, WMF images, pattern fills, shadow/reflection/glow, combo charts, secondary axes, embedded OLE objects, slide notes.
+3D effects, animations/transitions, equations, pattern fills, shadow/reflection/glow, combo charts, secondary axes, embedded OLE objects, slide notes.
 
-EMF is partially supported: embedded PDF previews (via optional pdfjs-dist), embedded DIB
-bitmaps, and plain GDI path drawings converted to SVG by `src/utils/emfVector.ts`. Text
-output, bitmap blits, clipping regions and arc records are skipped.
+Metafiles are partially supported. Shared GDI state (pens, brushes, stock objects, map
+modes, COLORREF, SVG serialization) lives in `src/utils/gdi.ts`; each format's record
+decoding sits beside it.
+
+- **EMF** (`src/utils/emfVector.ts`): embedded PDF previews (via optional pdfjs-dist),
+  embedded DIB bitmaps, and plain GDI path drawings converted to SVG. Text output,
+  bitmap blits, clipping regions and arc records are skipped.
+- **WMF** (`src/utils/wmfVector.ts`): placeable and plain headers, window/viewport
+  mapping, DC stack, pens/brushes, polygon/polyline/polypolygon, rectangle, round
+  rectangle, ellipse, arc/pie/chord, line/move. Text output, bitmap blits, clipping
+  regions and hatch/pattern textures (drawn as their solid colour) are skipped.
+
+WMF gotchas, all of which cost real debugging time:
+
+- Record lengths count 16-bit WORDs, not bytes, and the function code follows the length.
+- Rectangle-shaped records store coordinates **reversed** (`bottom, right, top, left`);
+  points inside the poly\* arrays stay in natural `x, y` order.
+- Objects have no handles. Every create record — fonts and palettes included — claims the
+  lowest free slot, so one that is skipped shifts every later `SELECTOBJECT` index.
+- The viewBox must come from the window in force **when drawing starts**, not the first
+  window declared: real clip art opens with a placeholder 1x1 window. The placeable
+  bounding box is only a fallback — it is in its own physical units, so it is the wrong
+  scale for path data expressed in window units.
+- A DC's default 1x1 window/viewport extent must never be mistaken for a real one; the
+  scalable map modes would otherwise divide the whole drawing away.
 
 Notes:
 
