@@ -146,6 +146,7 @@ export type OoxmlChartType =
   | 'pieChart'
   | 'pie3DChart'
   | 'doughnutChart'
+  | 'ofPieChart'
   | 'radarChart'
   | 'scatterChart'
   | 'bubbleChart'
@@ -162,6 +163,7 @@ export const CHART_TYPE_ELEMENTS: OoxmlChartType[] = [
   'pieChart',
   'pie3DChart',
   'doughnutChart',
+  'ofPieChart',
   'radarChart',
   'scatterChart',
   'bubbleChart',

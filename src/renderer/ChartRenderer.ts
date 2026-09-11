@@ -22,6 +22,12 @@ import {
 import { parseOoxmlBoolElement } from './chart/ooxml';
 import { parseDataLabels, parsePointDataLabelOverrides } from './chart/dataLabels';
 import { parseExplosion, parseSeries } from './chart/series';
+import {
+  aggregateSliceName,
+  computeOfPieSplit,
+  parseOfPieConfig,
+  type OfPieConfig,
+} from './chart/ofPie';
 import { buildDataTableElement, parseDataTable } from './chart/dataTable';
 import {
   buildChartPalette,
@@ -2197,6 +2203,15 @@ function buildOptionForChartType(
       return buildPieChartOption(chartTypeNode, chartNode, seriesArr, false, ctx, chartSize);
     case 'doughnutChart':
       return buildPieChartOption(chartTypeNode, chartNode, seriesArr, true, ctx, chartSize);
+    case 'ofPieChart':
+      return buildOfPieChartOption(
+        chartTypeNode,
+        chartNode,
+        seriesArr,
+        ctx,
+        chartPalette,
+        chartSize,
+      );
     case 'radarChart':
       return buildRadarChartOption(
         chartTypeNode,
@@ -2215,6 +2230,178 @@ function buildOptionForChartType(
     default:
       return undefined;
   }
+}
+
+/**
+ * Build a pie of pie / bar of pie chart.
+ *
+ * The series is split in two (see `chart/ofPie.ts`): the primary pie keeps its
+ * own points plus one aggregate slice standing in for everything that moved,
+ * and the secondary plot details those moved points. When the series is too
+ * small to split meaningfully this degrades to an ordinary pie rather than
+ * drawing a one-slice satellite.
+ */
+function buildOfPieChartOption(
+  chartTypeNode: SafeXmlNode,
+  chartNode: SafeXmlNode,
+  seriesArr: SeriesData[],
+  ctx: RenderContext,
+  chartPalette?: string[],
+  chartSize?: ChartPixelSize,
+): EChartsTypes.EChartsOption | undefined {
+  const series = seriesArr[0];
+  if (!series) return undefined;
+
+  const config = parseOfPieConfig(chartTypeNode);
+  const split = computeOfPieSplit(series.values, config);
+
+  // Nothing worth breaking out — an ordinary pie says the same thing.
+  if (split.secondary.length === 0) {
+    return buildPieChartOption(chartTypeNode, chartNode, seriesArr, false, ctx, chartSize);
+  }
+
+  const titleOption = buildChartTitleOption(chartNode, seriesArr, ctx, 12);
+  const legendInfo = extractLegendInfo(chartNode, ctx);
+  const labels = parseDataLabels(chartTypeNode, ctx);
+  const label = buildPieLabelOption(labels, series.formatCode, series.name);
+
+  const valueAt = (i: number) => series.values[i] ?? 0;
+  const nameAt = (i: number) => series.categories[i] || `Item ${i + 1}`;
+  /** Colour points from one continuous sweep of the palette, as PowerPoint does. */
+  const colorAt = (i: number): string | undefined =>
+    series.dataPointColors?.[i] ??
+    (chartPalette && chartPalette.length > 0 ? chartPalette[i % chartPalette.length] : undefined);
+
+  const dataItem = (i: number) => {
+    const color = colorAt(i);
+    return {
+      name: nameAt(i),
+      value: valueAt(i),
+      ...(color ? { itemStyle: { color } } : {}),
+    };
+  };
+
+  const aggregateValue = split.secondary.reduce((sum, i) => sum + valueAt(i), 0);
+  const aggregateName = aggregateSliceName(series.categories);
+  // The aggregate slice sits next to the primary pie's own slices, so it must
+  // not repeat one of their colours — indexing past the end of a six-entry
+  // theme palette wraps straight back onto the first slice.
+  const aggregateColor = pickAggregateColor(chartPalette, split.primary.map(colorAt));
+
+  const primaryData = [
+    ...split.primary.map(dataItem),
+    {
+      name: aggregateName,
+      value: aggregateValue,
+      itemStyle: { color: aggregateColor },
+    },
+  ];
+  const secondaryData = split.secondary.map(dataItem);
+
+  const layout = computeOfPieLayout(config, config.ofPieType === 'bar');
+  const primarySeries: EChartsTypes.PieSeriesOption = {
+    type: 'pie',
+    name: series.name,
+    center: layout.primaryCenter,
+    radius: layout.primaryRadius,
+    data: primaryData,
+    label: label ?? { show: false },
+    labelLine: { show: Boolean(labels?.showLeaderLines) },
+  };
+
+  const legendData = [...primaryData, ...secondaryData].map((d) => d.name);
+  const base: EChartsTypes.EChartsOption = {
+    title: titleOption,
+    tooltip: { trigger: 'item' as const },
+    ...(legendInfo?.option ? { legend: { ...legendInfo.option, data: legendData } } : {}),
+  };
+
+  if (config.ofPieType === 'bar') {
+    // A bar of pie stacks the broken-out points into a single column, so the
+    // grid holds just one category.
+    const barSeries: EChartsTypes.BarSeriesOption[] = secondaryData.map((d) => ({
+      type: 'bar' as const,
+      name: d.name,
+      stack: 'ofPie',
+      data: [d.value],
+      ...(d.itemStyle ? { itemStyle: d.itemStyle } : {}),
+      ...(label ? { label } : {}),
+    }));
+    return {
+      ...base,
+      grid: layout.barGrid,
+      xAxis: { type: 'category' as const, data: [''], axisTick: { show: false } },
+      // The column is the aggregate slice expanded, so it spans the whole plot.
+      // Pinning both bounds also keeps the generic axis-range pass from sizing
+      // this axis against the pie's values, which would squash the column.
+      yAxis: { type: 'value' as const, show: false, min: 0, max: aggregateValue },
+      series: [primarySeries, ...barSeries],
+    };
+  }
+
+  return {
+    ...base,
+    series: [
+      primarySeries,
+      {
+        type: 'pie' as const,
+        name: series.name,
+        center: layout.secondaryCenter,
+        radius: layout.secondaryRadius,
+        data: secondaryData,
+        label: label ?? { show: false },
+        labelLine: { show: Boolean(labels?.showLeaderLines) },
+      },
+    ],
+  };
+}
+
+/** Office's neutral "other" grey, used when every palette entry is taken. */
+const OF_PIE_AGGREGATE_FALLBACK = '#A5A5A5';
+
+/**
+ * Pick a colour for the aggregate slice.
+ *
+ * Preference goes to the first palette entry the primary pie has not already
+ * used, which keeps that pie legible and tends to land on the colour the
+ * secondary plot starts from — tying the slice to what it stands for.
+ */
+function pickAggregateColor(
+  palette: string[] | undefined,
+  primaryColors: (string | undefined)[],
+): string {
+  const used = new Set(primaryColors.filter((c): c is string => Boolean(c)));
+  return palette?.find((color) => !used.has(color)) ?? OF_PIE_AGGREGATE_FALLBACK;
+}
+
+/**
+ * Place the two plots side by side.
+ *
+ * `c:secondPieSize` is the secondary plot's size as a percentage of the primary
+ * one, so it scales the satellite's radius rather than setting it outright.
+ */
+function computeOfPieLayout(
+  config: OfPieConfig,
+  isBar: boolean,
+): {
+  primaryCenter: [string, string];
+  primaryRadius: string;
+  secondaryCenter: [string, string];
+  secondaryRadius: string;
+  barGrid: Record<string, string>;
+} {
+  const primaryRadiusPct = 34;
+  // Clamp to the range PowerPoint's own UI allows.
+  const sizeRatio = Math.min(Math.max(config.secondPieSize, 5), 200) / 100;
+  return {
+    primaryCenter: ['27%', '55%'],
+    primaryRadius: `${primaryRadiusPct}%`,
+    secondaryCenter: ['73%', '55%'],
+    secondaryRadius: `${primaryRadiusPct * sizeRatio}%`,
+    barGrid: isBar
+      ? { left: '58%', right: '8%', top: '18%', bottom: '12%' }
+      : { left: '58%', right: '8%', top: '18%', bottom: '12%' },
+  };
 }
 
 function isCartesianComboCapable(typeName: OoxmlChartType): boolean {
