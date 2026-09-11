@@ -12,10 +12,28 @@ import {
   tokenizeSvgPathData,
 } from '../../../src/renderer/pathData';
 
+/**
+ * Budget for rejecting pathological input.
+ *
+ * Deliberately loose. Catastrophic backtracking on these inputs takes seconds or
+ * never finishes, while the linear scans being tested take well under a
+ * millisecond, so anything between the two separates them. A tight budget
+ * instead measures how busy the machine is: at 50ms this failed intermittently
+ * during full-suite runs while passing whenever the file ran on its own.
+ */
+const BACKTRACKING_BUDGET_MS = 500;
+
+/** Assert a parser rejects pathological input without catastrophic backtracking. */
 function expectFast(fn: () => unknown): void {
-  const start = performance.now();
-  fn();
-  expect(performance.now() - start).toBeLessThan(50);
+  let best = Infinity;
+  // The fastest of several attempts is the measurement least polluted by GC and
+  // by whatever else is running alongside the suite.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const start = performance.now();
+    fn();
+    best = Math.min(best, performance.now() - start);
+  }
+  expect(best).toBeLessThan(BACKTRACKING_BUDGET_MS);
 }
 
 describe('safe CSS value parsing', () => {
