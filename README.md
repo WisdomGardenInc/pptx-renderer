@@ -749,7 +749,7 @@ Dev pages at `http://127.0.0.1:5173`:
 
 ## What's Not Yet Supported
 
-3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, chartex layouts other than waterfall and funnel (treemap, sunburst, box & whisker, histogram, Pareto, region map), shadow/reflection/glow effects, executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG; the remaining metafile record families (text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
+3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, the 37 deformation WordArt text warps (inflate, deflate, wave, can, triangle, chevron, slant, cascade and the rest; the three baseline warps — arch up, arch down and circle — are supported), chartex layouts other than waterfall and funnel (treemap, sunburst, box & whisker, histogram, Pareto, region map), shadow/reflection/glow effects, executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG; the remaining metafile record families (text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
 
 ## FAQ
 

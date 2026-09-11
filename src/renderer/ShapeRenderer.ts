@@ -198,16 +198,31 @@ const NO_AUTOFIT_TITLE_METRIC_SCALE_FLOOR = 0.9;
 const SP_AUTOFIT_UNWRAPPED_WIDTH_SCALE_FLOOR = 0.9;
 const NEAR_FIT_SINGLE_LINE_WRAP_SCALE_FLOOR = 0.98;
 
-function getSupportedTextWarpPreset(textBody: TextBody): 'textArchDown' | 'textArchUp' | null {
+/**
+ * Text warp presets that lay text along a single baseline.
+ *
+ * These are the only ones an SVG `<textPath>` can render faithfully. Of the 40
+ * presets in ECMA-376's presetTextWarpDefinitions.xml only these three declare a
+ * single `<path>`; the other 37 declare two, which are the upper and lower
+ * envelopes of a region the glyphs are stretched to fill — a deformation, not a
+ * baseline. Mapping one of those onto a single path would run the text along an
+ * envelope edge and misplace every glyph, so they stay unwarped instead.
+ */
+const BASELINE_TEXT_WARP_PRESETS = ['textArchDown', 'textArchUp', 'textCircle'] as const;
+
+type BaselineTextWarpPreset = (typeof BASELINE_TEXT_WARP_PRESETS)[number];
+
+function getSupportedTextWarpPreset(textBody: TextBody): BaselineTextWarpPreset | null {
   const prstTxWarp = textBody.bodyProperties?.child('prstTxWarp');
   const preset = prstTxWarp?.attr('prst');
-  return preset === 'textArchDown' || preset === 'textArchUp' ? preset : null;
+  return BASELINE_TEXT_WARP_PRESETS.find((p) => p === preset) ?? null;
 }
 
 /** `adj` of a text warp preset, in 60000ths of a degree (OOXML preset default when absent). */
-function getTextWarpAdjustment(textBody: TextBody, preset: 'textArchDown' | 'textArchUp'): number {
-  // presetTextWarpDefinitions.xml defaults: textArchUp `val cd2` (180°), textArchDown `val 0`.
-  const fallback = preset === 'textArchUp' ? 10800000 : 0;
+function getTextWarpAdjustment(textBody: TextBody, preset: BaselineTextWarpPreset): number {
+  // presetTextWarpDefinitions.xml defaults: textArchUp and textCircle `val cd2`
+  // (180°), textArchDown `val 0`.
+  const fallback = preset === 'textArchDown' ? 0 : 10800000;
   const gd = textBody.bodyProperties
     ?.child('prstTxWarp')
     .child('avLst')
@@ -270,10 +285,22 @@ const ooxmlIf = (x: number, a: number, b: number): number => (x >= 0 ? a : b);
  * top (textArchUp) or bottom (textArchDown) of the ellipse inscribed in the shape.
  */
 function getTextArchAngles(
-  preset: 'textArchDown' | 'textArchUp',
+  preset: BaselineTextWarpPreset,
   adj: number,
 ): { stAng: number; swAng: number } {
   const adval = Math.min(Math.max(adj, 0), 21599999);
+
+  if (preset === 'textCircle') {
+    // textCircle: d0 = adval - cd2, d2 = 21600000 - adval, d3 = ?: d1 d1 10799999,
+    // d4 = ?: d0 d2 d3, swAng = d4 * 2. At the default 180° this sweeps a full turn.
+    const d0 = adval - 10800000;
+    const d1 = 10800000 - adval;
+    const d2 = 21600000 - adval;
+    const d3 = ooxmlIf(d1, d1, 10799999);
+    const d4 = ooxmlIf(d0, d2, d3);
+    return { stAng: adval, swAng: d4 * 2 };
+  }
+
   const v1 = 10800000 - adval;
   const v2 = 32400000 - adval;
   const w1 = 5400000 - adval;
@@ -301,7 +328,7 @@ function getTextArchAngles(
 const TEXT_ARCH_MAX_SEGMENT_DEG = 45;
 
 function buildTextArchPath(
-  preset: 'textArchDown' | 'textArchUp',
+  preset: BaselineTextWarpPreset,
   w: number,
   h: number,
   adj: number,

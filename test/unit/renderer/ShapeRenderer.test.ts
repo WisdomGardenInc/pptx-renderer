@@ -6473,6 +6473,12 @@ describe('ShapeRenderer', () => {
     // sweeping through the bottom (down) or top (up) centre point.
     ['textArchDown', 'M0,40 A50,40 0 0,0 50,80 A50,40 0 0,0 100,40'],
     ['textArchUp', 'M0,40 A50,40 0 0,1 50,0 A50,40 0 0,1 100,40'],
+    // textCircle sweeps a full turn from the same 180° start, so it returns to
+    // its own start point rather than stopping at the far side like an arch.
+    [
+      'textCircle',
+      'M0,40 A50,40 0 0,1 50,0 A50,40 0 0,1 100,40 A50,40 0 0,1 50,80 A50,40 0 0,1 0,40',
+    ],
   ])('renders supported text warp preset %s as an SVG textPath', (preset, expectedPath) => {
     const xml = `
       <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -6520,6 +6526,40 @@ describe('ShapeRenderer', () => {
     const [start, ...arcs] = warpPath.getAttribute('d')!.split(' A');
     const axisCrossings = arcs.filter((_, index) => index % 2 === 1).map((arc) => `A${arc}`);
     expect([start, ...axisCrossings].join(' ')).toBe(expectedPath);
+  });
+
+  it.each([
+    // Each of these declares two paths in presetTextWarpDefinitions.xml: an upper
+    // and a lower envelope bounding a region the glyphs are stretched to fill.
+    ['textInflate'],
+    ['textDeflate'],
+    ['textWave1'],
+    ['textCanUp'],
+    ['textTriangle'],
+    ['textCurveUp'],
+    ['textButton'],
+  ])('leaves deformation preset %s as ordinary text rather than a baseline', (preset) => {
+    // Running text along one envelope edge would misplace every glyph, so an
+    // unwarped line is the honest fallback until envelope warping exists.
+    const xml = `
+      <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+        <p:nvSpPr><p:cNvPr id="23" name="Warped"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="0"/><a:ext cx="952500" cy="762000"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr><a:prstTxWarp prst="${preset}"><a:avLst/></a:prstTxWarp></a:bodyPr>
+          <a:lstStyle/>
+          <a:p><a:r><a:rPr lang="en-US"/><a:t>Warped</a:t></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+    `;
+
+    const el = renderShape(parseShapeNode(parseXml(xml)), createMockRenderContext());
+    expect(el.querySelector('svg textPath')).toBeNull();
+    expect(el.textContent).toContain('Warped');
   });
 
   it('arcs warped text along the prstTxWarp adj angle, not a fixed shallow curve (1ppt chart slide 3)', () => {

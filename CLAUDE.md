@@ -119,7 +119,7 @@ Three-step: `schemeClr` → master `colorMap` remap (e.g. "tx1"→"dk1") → the
 
 3D effects (`a:sp3d` / `a:scene3d` / `bevelT` / `lightRig`; the `*3DChart` types render
 flat), animations/transitions (`p:timing`, `p:anim`, `p:bldLst`, `p:transition`),
-equations (OMML), slide notes / notes master / handout master and comments (`ZipParser`
+equations (OMML), the 37 deformation text warps (see below), slide notes / notes master / handout master and comments (`ZipParser`
 does not collect those parts), non-3D `surfaceChart`, the chartEx layouts
 beyond waterfall and funnel (`cx:` namespace — treemap, sunburst, boxWhisker,
 histogram, Pareto, regionMap; these report an unsupported-layout notice rather
@@ -138,6 +138,7 @@ Already supported — do not re-implement (this list used to claim otherwise):
 | OLE static preview pictures                           | `RenderableChild.ts:126` → `parseOleFrameAsPicture` (a preview, not an OLE engine)    |
 | `ofPieChart` (pie of pie / bar of pie)                | `chart/ofPie.ts` holds the split rule; `ChartRenderer.ts` → `buildOfPieChartOption`   |
 | chartEx waterfall and funnel (`cx:chartSpace`)        | `chart/chartEx.ts`; dispatched at the top of `parseChartXml`                          |
+| Text warp: `textArchUp`, `textArchDown`, `textCircle` | `ShapeRenderer.ts` → `BASELINE_TEXT_WARP_PRESETS`, rendered as an SVG `<textPath>`    |
 
 Metafiles are partially supported. Shared GDI state (pens, brushes, stock objects, map
 modes, COLORREF, SVG serialization) lives in `src/utils/gdi.ts`; each format's record
@@ -164,6 +165,23 @@ WMF gotchas, all of which cost real debugging time:
   scale for path data expressed in window units.
 - A DC's default 1x1 window/viewport extent must never be mistaken for a real one; the
   scalable map modes would otherwise divide the whole drawing away.
+
+### Text warp (`a:prstTxWarp`)
+
+ECMA-376's presetTextWarpDefinitions.xml holds 40 presets, and they split into two
+kinds that need completely different machinery:
+
+- **Baseline warps** declare a single `<path>`: `textArchUp`, `textArchDown`,
+  `textCircle`. Text runs along that one curve, which an SVG `<textPath>` does
+  exactly. All three are supported.
+- **Deformation warps** — the other 37 — declare **two** paths: the upper and lower
+  envelopes of a region the glyphs are stretched to fill. This is a deformation, not
+  a baseline, so `<textPath>` cannot express it; running the text along one envelope
+  edge would misplace every glyph. They render as ordinary unwarped text.
+
+Supporting the deformation warps needs a different mechanism (an OOXML guide-formula
+evaluator, envelope sampling, and per-glyph placement between the two curves), not
+more entries in the preset list.
 
 Notes:
 
