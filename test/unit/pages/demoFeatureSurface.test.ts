@@ -149,8 +149,11 @@ describe('public demo feature surface', () => {
   it('re-renders the loaded deck when the renderer version changes', () => {
     expect(demoHtml).toContain('cachedLabel');
     expect(demoHtml).toContain('cachedBytes');
-    expect(demoHtml).toContain(
-      'if (cachedBuffer) await renderBuffer(cachedBuffer, cachedLabel, cachedBytes)',
+    // Trailing arguments are open on purpose: what matters is that a version
+    // switch re-renders the cached deck with its cached metadata, not how many
+    // extras (slide position, and so on) renderBuffer grows.
+    expect(demoHtml).toMatch(
+      /if \(cachedBuffer\) await renderBuffer\(\s*cachedBuffer,\s*cachedLabel,\s*cachedBytes\s*[,)]/,
     );
   });
 
