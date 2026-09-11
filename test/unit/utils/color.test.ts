@@ -459,8 +459,18 @@ describe('presetColorToHex', () => {
     expect(presetColorToHex('cornflowerBlue')).toBe('#6495ED');
   });
 
+  it('resolves the abbreviated ST_PresetColorVal names', () => {
+    // ECMA-376 spells these dk/lt/med, not dark/light/medium.
+    expect(presetColorToHex('dkBlue')).toBe('#00008B');
+    expect(presetColorToHex('ltGreen')).toBe('#90EE90');
+    expect(presetColorToHex('medPurple')).toBe('#9370DB');
+    expect(presetColorToHex('ltGoldenrodYellow')).toBe('#FAFAD2');
+    expect(presetColorToHex('dkSlateGrey')).toBe(presetColorToHex('darkSlateGray'));
+  });
+
   it('case-insensitive fallback', () => {
     expect(presetColorToHex('ALICEBLUE')).toBe('#F0F8FF');
+    expect(presetColorToHex('DKBLUE')).toBe('#00008B');
   });
 
   it('returns undefined for unknown', () => {

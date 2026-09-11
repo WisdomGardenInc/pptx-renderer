@@ -53,6 +53,21 @@ describe('resolveColor', () => {
     expect(result.color).toMatch(/[Ff][Ff]0000/);
   });
 
+  it('resolves the abbreviated prstClr names and greys out unknown ones', () => {
+    const ctx = createMockRenderContext();
+    expect(
+      resolveColor(xmlNode('<solidFill><prstClr val="dkBlue"/></solidFill>'), ctx).color,
+    ).toMatch(/00008B/i);
+    expect(
+      resolveColor(xmlNode('<solidFill><prstClr val="ltGreen"/></solidFill>'), ctx).color,
+    ).toMatch(/90EE90/i);
+    // An unrecognized name must not land on black — that reads as a deliberate
+    // prstClr val="black" and hides the gap.
+    expect(
+      resolveColor(xmlNode('<solidFill><prstClr val="notAPresetColor"/></solidFill>'), ctx).color,
+    ).toMatch(/808080/i);
+  });
+
   it('resolves hslClr', () => {
     const ctx = createMockRenderContext();
     // hue=0 (red), sat=100%, lum=50% => should be red
@@ -766,7 +781,7 @@ describe('resolveColor — layout colorMapOverride', () => {
     ).toBe('#0000FF');
   });
 
-  it('lets slide masterClrMapping reset a layout override', () => {
+  it('lets slide masterClrMapping inherit a layout override', () => {
     const baseCtx = createMockRenderContext();
     const ctx = createMockRenderContext({
       theme: {
@@ -782,6 +797,34 @@ describe('resolveColor — layout colorMapOverride', () => {
         ...baseCtx.layout,
         colorMapOverrideMode: 'override',
         colorMapOverride: new Map([['accent1', 'accent2']]),
+      },
+      slide: { ...baseCtx.slide, colorMapOverrideMode: 'master' },
+    });
+
+    // masterClrMapping means "inherit", not "jump to the master": PowerPoint
+    // writes it on nearly every slide, so resetting to the master map here
+    // would make every layout-level overrideClrMapping unreachable.
+    expect(
+      resolveColor(xmlNode('<solidFill><schemeClr val="accent1"/></solidFill>'), ctx).color,
+    ).toBe('#0000FF');
+  });
+
+  it('falls back to the master map for a slot the layout override omits', () => {
+    const baseCtx = createMockRenderContext();
+    const ctx = createMockRenderContext({
+      theme: {
+        ...baseCtx.theme,
+        colorScheme: new Map([
+          ['accent1', '#FF0000'],
+          ['accent2', '#0000FF'],
+          ['accent3', '#00FF00'],
+        ]),
+      },
+      master: { ...baseCtx.master, colorMap: new Map([['accent1', 'accent3']]) },
+      layout: {
+        ...baseCtx.layout,
+        colorMapOverrideMode: 'override',
+        colorMapOverride: new Map([['accent2', 'accent2']]),
       },
       slide: { ...baseCtx.slide, colorMapOverrideMode: 'master' },
     });

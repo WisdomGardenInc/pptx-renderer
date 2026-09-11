@@ -591,19 +591,70 @@ const PRESET_COLORS: Record<string, string> = {
 };
 
 /**
+ * ECMA-376 ST_PresetColorVal abbreviates what CSS/HTML spells out: `dkBlue`
+ * instead of `darkBlue`, `ltGreen` instead of `lightGreen`, `medPurple`
+ * instead of `mediumPurple`. Map those onto the table above.
+ */
+const PRESET_COLOR_ALIASES: Record<string, string> = {
+  dkBlue: 'darkBlue',
+  dkCyan: 'darkCyan',
+  dkGoldenrod: 'darkGoldenrod',
+  dkGray: 'darkGray',
+  dkGrey: 'darkGrey',
+  dkGreen: 'darkGreen',
+  dkKhaki: 'darkKhaki',
+  dkMagenta: 'darkMagenta',
+  dkOliveGreen: 'darkOliveGreen',
+  dkOrange: 'darkOrange',
+  dkOrchid: 'darkOrchid',
+  dkRed: 'darkRed',
+  dkSalmon: 'darkSalmon',
+  dkSeaGreen: 'darkSeaGreen',
+  dkSlateBlue: 'darkSlateBlue',
+  dkSlateGray: 'darkSlateGray',
+  dkSlateGrey: 'darkSlateGrey',
+  dkTurquoise: 'darkTurquoise',
+  dkViolet: 'darkViolet',
+  ltBlue: 'lightBlue',
+  ltCoral: 'lightCoral',
+  ltCyan: 'lightCyan',
+  ltGoldenrodYellow: 'lightGoldenrodYellow',
+  ltGray: 'lightGray',
+  ltGrey: 'lightGrey',
+  ltGreen: 'lightGreen',
+  ltPink: 'lightPink',
+  ltSalmon: 'lightSalmon',
+  ltSeaGreen: 'lightSeaGreen',
+  ltSkyBlue: 'lightSkyBlue',
+  ltSlateGray: 'lightSlateGray',
+  ltSlateGrey: 'lightSlateGrey',
+  ltSteelBlue: 'lightSteelBlue',
+  ltYellow: 'lightYellow',
+  medAquamarine: 'mediumAquamarine',
+  medBlue: 'mediumBlue',
+  medOrchid: 'mediumOrchid',
+  medPurple: 'mediumPurple',
+  medSeaGreen: 'mediumSeaGreen',
+  medSlateBlue: 'mediumSlateBlue',
+  medSpringGreen: 'mediumSpringGreen',
+  medTurquoise: 'mediumTurquoise',
+  medVioletRed: 'mediumVioletRed',
+};
+
+/** Lower-cased index over both tables, so lookups stay case-insensitive without a scan. */
+const PRESET_COLOR_INDEX: Map<string, string> = new Map([
+  ...Object.entries(PRESET_COLORS).map(
+    ([key, hex]) => [key.toLowerCase(), hex] as [string, string],
+  ),
+  ...Object.entries(PRESET_COLOR_ALIASES).map(
+    ([alias, key]) => [alias.toLowerCase(), PRESET_COLORS[key]] as [string, string],
+  ),
+]);
+
+/**
  * Look up a preset OOXML color name and return its hex value.
  * Returns undefined if the name is not recognized.
  */
 export function presetColorToHex(name: string): string | undefined {
-  // Try exact match first, then case-insensitive
-  if (PRESET_COLORS[name] !== undefined) {
-    return PRESET_COLORS[name];
-  }
-  const lower = name.toLowerCase();
-  for (const [key, value] of Object.entries(PRESET_COLORS)) {
-    if (key.toLowerCase() === lower) {
-      return value;
-    }
-  }
-  return undefined;
+  return PRESET_COLORS[name] ?? PRESET_COLOR_INDEX.get(name.toLowerCase());
 }

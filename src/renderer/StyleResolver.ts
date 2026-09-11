@@ -62,10 +62,18 @@ function collectModifiers(colorNode: SafeXmlNode): ColorModifier[] {
 }
 
 /**
- * Resolve a scheme color name through the master colorMap then theme colorScheme.
+ * Resolve a scheme color name through the effective colorMap then theme colorScheme.
  *
  * OOXML scheme colors use logical names (e.g., "tx1", "bg1", "accent1").
- * The master's colorMap remaps some of these (e.g., "tx1" -> "dk1").
+ * The master's colorMap remaps some of these (e.g., "tx1" -> "dk1"), and a
+ * layout or slide may override that map via `p:clrMapOvr`.
+ *
+ * The mapping cascades slide -> layout -> master: only `overrideClrMapping`
+ * supplies a map, while `masterClrMapping` means "inherit" and defers to the
+ * next level up. PowerPoint writes `masterClrMapping` on nearly every slide, so
+ * treating it as a jump straight to the master would make every layout-level
+ * `overrideClrMapping` dead XML.
+ *
  * The theme's colorScheme holds the actual hex values keyed by the mapped name.
  */
 function resolveSchemeColor(schemeName: string, ctx: RenderContext): string {
@@ -81,15 +89,16 @@ function resolveSchemeColor(schemeName: string, ctx: RenderContext): string {
     return true;
   };
 
-  if (slideMode === 'override') {
-    if (!applyMap(ctx.slide.colorMapOverride)) applyMap(ctx.master.colorMap);
-  } else if (slideMode === 'master') {
-    applyMap(ctx.master.colorMap);
-  } else if (layoutMode === 'override') {
-    if (!applyMap(ctx.layout.colorMapOverride)) applyMap(ctx.master.colorMap);
-  } else {
-    applyMap(ctx.master.colorMap);
-  }
+  const override =
+    slideMode === 'override'
+      ? ctx.slide.colorMapOverride
+      : layoutMode === 'override'
+        ? ctx.layout.colorMapOverride
+        : undefined;
+
+  // An override map is expected to be complete; fall back to the master map for
+  // any slot it happens to omit.
+  if (!applyMap(override)) applyMap(ctx.master.colorMap);
 
   // Look up in theme color scheme
   const hex = ctx.theme.colorScheme.get(mappedName);
@@ -153,7 +162,9 @@ function resolveColorUncached(
 
       case 'prstClr': {
         const name = child.attr('val') || 'black';
-        const hex = presetColorToHex(name) || '#000000';
+        // Neutral gray for an unrecognized preset name: a black fallback is
+        // indistinguishable from a deliberate prstClr val="black".
+        const hex = presetColorToHex(name) || '#808080';
         return applyColorModifiers(hex.replace('#', ''), modifiers);
       }
 
@@ -204,7 +215,7 @@ function resolveColorUncached(
   }
   if (selfTag === 'prstClr') {
     const name = colorNode.attr('val') || 'black';
-    const hex = presetColorToHex(name) || '#000000';
+    const hex = presetColorToHex(name) || '#808080';
     return applyColorModifiers(hex.replace('#', ''), collectModifiers(colorNode));
   }
   if (selfTag === 'hslClr') {
