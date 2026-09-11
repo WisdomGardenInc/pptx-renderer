@@ -596,7 +596,7 @@ Full OOXML text cascade: master → layout → shape → paragraph → run. Supp
 
 ### Charts via ECharts
 
-Powered by [ECharts](https://echarts.apache.org/). Supports Bar/Column (clustered, stacked, 100% stacked), Line/Area (standard, stacked, 100% stacked), Pie, multi-ring Doughnut, Radar, Scatter, Bubble, and Stock/Candlestick charts, with axis labels, legends, data labels, grid lines, chart color-style palettes, marker symbols, and custom number formats.
+Powered by [ECharts](https://echarts.apache.org/). Supports Bar/Column (clustered, stacked, 100% stacked), Line/Area (standard, stacked, 100% stacked), Pie, Pie-of-Pie / Bar-of-Pie, multi-ring Doughnut, Radar, Scatter, Bubble, and Stock/Candlestick charts, with axis labels, legends, data labels, grid lines, chart color-style palettes, marker symbols, and custom number formats.
 
 The renderer registers only the ECharts charts, components, features, and Canvas renderer
 that it uses. Bundler consumers keep ECharts external; the standalone browser entry
