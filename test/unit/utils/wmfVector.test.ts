@@ -89,6 +89,11 @@ const META_CHORD = 0x0830;
 const META_CREATEPENINDIRECT = 0x02fa;
 const META_CREATEBRUSHINDIRECT = 0x02fc;
 const META_CREATEFONTINDIRECT = 0x02fb;
+const META_SETTEXTALIGN = 0x012e;
+const META_SETTEXTCOLOR = 0x0209;
+const META_TEXTOUT = 0x0521;
+const META_EXTTEXTOUT = 0x0a32;
+const META_DIBBITBLT = 0x0940;
 
 /** A window covering 0,0..200,100, which makes device units equal logical units. */
 const windowRecords = [
@@ -123,6 +128,73 @@ function penBody(style: number, width: number, color: number): Uint8Array {
   view.setInt16(2, width, true);
   view.setUint32(6, color, true);
   return buf;
+}
+
+/** Build a LOGFONT body: 18 fixed bytes, then a NUL-terminated facename. */
+function fontBody(
+  options: {
+    height?: number;
+    escapement?: number;
+    weight?: number;
+    italic?: boolean;
+    underline?: boolean;
+    charset?: number;
+    facename?: string;
+  } = {},
+): Uint8Array {
+  const name = options.facename ?? '';
+  // Records are counted in whole words, so the padded name keeps the body even.
+  const buf = new Uint8Array(18 + name.length + (name.length % 2 === 0 ? 2 : 1));
+  const view = new DataView(buf.buffer);
+  view.setInt16(0, options.height ?? -20, true);
+  view.setInt16(4, options.escapement ?? 0, true);
+  view.setInt16(8, options.weight ?? 400, true);
+  buf[10] = options.italic ? 1 : 0;
+  buf[11] = options.underline ? 1 : 0;
+  buf[13] = options.charset ?? 0;
+  for (let i = 0; i < name.length; i++) buf[18 + i] = name.charCodeAt(i);
+  return buf;
+}
+
+/**
+ * Build an ExtTextOut body: y, x, StringLength, fwOpts, [Rectangle], String
+ * (padded to a word), Dx. The rectangle is only present for the opaque and
+ * clipped options.
+ */
+function extTextOutBody(
+  x: number,
+  y: number,
+  text: Uint8Array,
+  dx?: number[],
+  options = 0,
+): Uint8Array {
+  const rect = options & 0x0006 ? 8 : 0;
+  const padded = text.length + (text.length & 1);
+  const buf = new Uint8Array(8 + rect + padded + (dx ? dx.length * 2 : 0));
+  const view = new DataView(buf.buffer);
+  view.setInt16(0, y, true);
+  view.setInt16(2, x, true);
+  view.setUint16(4, text.length, true);
+  view.setUint16(6, options, true);
+  buf.set(text, 8 + rect);
+  dx?.forEach((value, i) => view.setInt16(8 + rect + padded + i * 2, value, true));
+  return buf;
+}
+
+/** Build a TextOut body: StringLength, String (padded), then y, x. */
+function textOutBody(x: number, y: number, text: Uint8Array): Uint8Array {
+  const padded = text.length + (text.length & 1);
+  const buf = new Uint8Array(2 + padded + 4);
+  const view = new DataView(buf.buffer);
+  view.setUint16(0, text.length, true);
+  buf.set(text, 2);
+  view.setInt16(2 + padded, y, true);
+  view.setInt16(4 + padded, x, true);
+  return buf;
+}
+
+function ascii(text: string): Uint8Array {
+  return Uint8Array.from(text, (ch) => ch.charCodeAt(0));
 }
 
 /** Pack a `Count(2) aPoints[]` payload, points in natural x,y order. */
@@ -563,11 +635,224 @@ describe('parseWmfVector — malformed input', () => {
     const image = parseWmfVector(
       buildWmf([
         ...windowRecords,
-        record(0x0a32, [1, 2, 3, 4]), // META_EXTTEXTOUT — not supported
+        record(META_DIBBITBLT, [1, 2, 3, 4]), // bitmap blit — not supported
         record(META_RECTANGLE, [50, 50, 0, 0]),
       ]),
     );
     expect(image!.paths).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Text output
+// ---------------------------------------------------------------------------
+
+describe('parseWmfVector text', () => {
+  /** Select a font into slot 0 so the records after it draw with it. */
+  const withFont = (options?: Parameters<typeof fontBody>[0]) => [
+    rawRecord(META_CREATEFONTINDIRECT, fontBody(options)),
+    record(META_SELECTOBJECT, [0]),
+  ];
+
+  it('draws an ExtTextOut run with the selected font and colour', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        ...withFont({ height: -20, facename: 'Arial' }),
+        record(META_SETTEXTCOLOR, [0x00ff, 0x0000]), // COLORREF 0x000000FF: red
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, ascii('Hi'))),
+      ]),
+    );
+    expect(image!.texts).toHaveLength(1);
+    const [text] = image!.texts!;
+    expect(text.text).toBe('Hi');
+    expect(text.fill).toBe('#FF0000');
+    expect(text.fontSize).toBe(20);
+    expect(text.fontFamily).toContain('Arial');
+    expect(text.x).toBe(10);
+    // Default alignment is TA_TOP, so the baseline sits an ascent lower.
+    expect(text.y).toBeCloseTo(37.6, 5);
+  });
+
+  it('reads a TextOut string from between the length and the position', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        ...withFont({ height: -20 }),
+        rawRecord(META_TEXTOUT, textOutBody(40, 50, ascii('Hi'))),
+      ]),
+    );
+    expect(image!.texts![0].text).toBe('Hi');
+    expect(image!.texts![0].x).toBe(40);
+  });
+
+  it('places each glyph at the position its Dx entry gives', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        ...withFont(),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, ascii('Hi'), [30, 40])),
+      ]),
+    );
+    expect(image!.texts![0].xs).toEqual([10, 40]);
+  });
+
+  it('turns a positive LOGFONT height into an em size', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        // A positive height is the cell, ascent plus descent, not the em.
+        ...withFont({ height: 20 }),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, ascii('Hi'))),
+      ]),
+    );
+    expect(image!.texts![0].fontSize).toBeCloseTo(20, 5);
+    expect(image!.texts![0].fontSize).toBeLessThan(20.001);
+  });
+
+  it('decodes a double-byte run with the charset the font declares', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        ...withFont({ charset: 134, facename: 'SimSun' }),
+        // GB2312 bytes for 中文, with the per-byte Dx array GDI records.
+        rawRecord(
+          META_EXTTEXTOUT,
+          extTextOutBody(10, 20, Uint8Array.from([0xd6, 0xd0, 0xce, 0xc4]), [30, 0, 40, 0]),
+        ),
+      ]),
+    );
+    const [text] = image!.texts!;
+    expect(text.text).toBe('中文');
+    // Two Dx entries per character have to fold onto one glyph each.
+    expect(text.xs).toEqual([10, 40]);
+  });
+
+  it('maps Symbol font slots to their Unicode equivalents', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        ...withFont({ charset: 2, facename: 'Symbol' }),
+        // 0xec..0xef are the four pieces a tall curly brace is built from.
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, Uint8Array.from([0xec, 0xef, 0xee]))),
+      ]),
+    );
+    const [text] = image!.texts!;
+    expect(text.text).toBe('\u23a7\u23aa\u23a9');
+    expect(text.fontFamily).toContain('Cambria Math');
+  });
+
+  it('keeps a non-Symbol symbol font in the private-use area it maps', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        ...withFont({ charset: 2, facename: 'Wingdings' }),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, Uint8Array.from([0x6c]))),
+      ]),
+    );
+    expect(image!.texts![0].text).toBe('\uf06c');
+    expect(image!.texts![0].fontFamily).toContain('Wingdings');
+  });
+
+  it('takes the reference point from the current position under TA_UPDATECP', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        record(META_SETTEXTALIGN, [0x0019]), // TA_UPDATECP | TA_BASELINE
+        ...withFont(),
+        record(META_MOVETO, [60, 50]), // reverse order: y, x
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(0, 0, ascii('A'), [30])),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(0, 0, ascii('B'), [30])),
+      ]),
+    );
+    const [first, second] = image!.texts!;
+    expect([first.x, first.y]).toEqual([50, 60]); // TA_BASELINE needs no offset
+    // The run advanced the current position, so the next one starts after it.
+    expect([second.x, second.y]).toEqual([80, 60]);
+  });
+
+  it('folds a centred run into its glyph positions', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        record(META_SETTEXTALIGN, [0x0006]), // TA_CENTER
+        ...withFont(),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(100, 20, ascii('Hi'), [30, 40])),
+      ]),
+    );
+    const [text] = image!.texts!;
+    // Per-glyph positions make every glyph its own text chunk, so `text-anchor`
+    // could not centre the run: the 70-unit advance is halved here instead.
+    expect(text.xs).toEqual([65, 95]);
+    expect(text.anchor).toBe('middle');
+  });
+
+  it('leaves alignment to text-anchor when the record carries no Dx array', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        record(META_SETTEXTALIGN, [0x0002]), // TA_RIGHT
+        ...withFont(),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(100, 20, ascii('Hi'))),
+      ]),
+    );
+    const [text] = image!.texts!;
+    expect(text.xs).toBeUndefined();
+    expect(text.anchor).toBe('end');
+    expect(text.x).toBe(100);
+  });
+
+  it('turns escapement into a clockwise SVG rotation', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        // 900 tenths of a degree counter-clockwise.
+        ...withFont({ escapement: 900 }),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, ascii('Hi'))),
+      ]),
+    );
+    expect(image!.texts![0].rotation).toBe(-90);
+  });
+
+  it('skips the rectangle an opaque or clipped run prefixes its string with', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        ...withFont(),
+        // ETO_CLIPPED, so the string is preceded by a clipping rectangle.
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, ascii('Hi'), undefined, 0x0004)),
+      ]),
+    );
+    expect(image!.texts![0].text).toBe('Hi');
+  });
+
+  it('selects a font without disturbing the brush in the same table', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        rawRecord(META_CREATEBRUSHINDIRECT, brushBody(0, 0x00ff00)), // slot 0
+        rawRecord(META_CREATEFONTINDIRECT, fontBody()), // slot 1
+        record(META_SELECTOBJECT, [0]),
+        record(META_SELECTOBJECT, [1]),
+        record(META_RECTANGLE, [50, 50, 0, 0]),
+      ]),
+    );
+    expect(image!.paths[0].fill).toBe('#00FF00');
+  });
+
+  it('frames a file whose only content is text', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        ...withFont(),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, ascii('Hi'))),
+      ]),
+    );
+    // The bug this guards: a text-only metafile used to convert to nothing, so
+    // the picture was a hole in the slide.
+    expect(image).not.toBeNull();
+    expect(image!.paths).toHaveLength(0);
+    expect([image!.width, image!.height]).toEqual([200, 100]);
   });
 });
 
@@ -585,5 +870,26 @@ describe('wmfVectorToSvg', () => {
     expect(svg).toContain('width="200" height="100"');
     expect(svg).toContain('viewBox="0 0 200 100"');
     expect(svg).toContain('<path d="M20,10 L60,10 L60,40 L20,40 Z"');
+  });
+
+  it('emits a <text> element carrying the run\'s font and decorations', () => {
+    const image = parseWmfVector(
+      buildWmf([
+        ...windowRecords,
+        rawRecord(
+          META_CREATEFONTINDIRECT,
+          fontBody({ height: -20, weight: 700, italic: true, underline: true, facename: 'Arial' }),
+        ),
+        record(META_SELECTOBJECT, [0]),
+        rawRecord(META_EXTTEXTOUT, extTextOutBody(10, 20, ascii('a & b'), [4, 4, 4, 4, 4])),
+      ]),
+    );
+    const svg = wmfVectorToSvg(image!);
+    expect(svg).toContain('<text x="10 14 18 22 26" y="37.6"');
+    expect(svg).toContain('font-size="20"');
+    expect(svg).toContain('font-weight="700"');
+    expect(svg).toContain('font-style="italic"');
+    expect(svg).toContain('text-decoration="underline"');
+    expect(svg).toContain('>a &amp; b</text>');
   });
 });

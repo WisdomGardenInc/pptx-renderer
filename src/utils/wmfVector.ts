@@ -24,11 +24,12 @@
  *
  * Supported: placeable and plain headers, map modes, window/viewport mapping,
  * DC save/restore, pens and brushes including stock objects, polygon/polyline/
- * polypolygon, rectangle, round rectangle, ellipse, arc/pie/chord and line/move.
+ * polypolygon, rectangle, round rectangle, ellipse, arc/pie/chord, line/move,
+ * and text output with fonts, charsets, colour and alignment.
  *
  * Not supported (records are skipped, the rest of the drawing is still emitted):
- * text output, bitmap blits, clipping regions, hatch and pattern brush textures
- * (drawn as their solid colour), and raster operation modes.
+ * bitmap blits, clipping regions, hatch and pattern brush textures (drawn as
+ * their solid colour), opaque text backgrounds, and raster operation modes.
  */
 
 import {
@@ -36,27 +37,38 @@ import {
   BS_NULL,
   Brush,
   DeviceContext,
+  GdiFont,
   MAX_PATHS,
   MAX_POINTS_PER_RECORD,
   MAX_RECORDS,
+  MAX_TEXTS,
   MetafileVectorImage,
   PS_NULL,
   PS_STYLE_MASK,
   Pen,
   Point,
   STOCK_OBJECT_FLAG,
+  TA_UPDATECP,
   arcPoints,
+  baselineOffset,
   colorRefToHex,
   createDeviceContext,
+  decodeGdiFacename,
+  decodeGdiText,
   ellipseSegments,
+  estimateTextAdvance,
   fmtPoint,
+  gdiFontStack,
+  isFont,
   isPen,
+  logFontEmSize,
   mapScale,
   metafileVectorToSvg,
   polyToSegments,
   rectCorners,
   roundRectSegments,
   stockObject,
+  textAnchorOf,
 } from './gdi';
 
 // --- Headers ----------------------------------------------------------------
@@ -74,6 +86,11 @@ const META_SETMAPMODE = 0x0103;
 const META_SETROP2 = 0x0104;
 const META_SETPOLYFILLMODE = 0x0106;
 const META_SETSTRETCHBLTMODE = 0x0107;
+const META_SETTEXTCHAREXTRA = 0x0108;
+const META_SETTEXTALIGN = 0x012e;
+const META_SETTEXTCOLOR = 0x0209;
+const META_TEXTOUT = 0x0521;
+const META_EXTTEXTOUT = 0x0a32;
 const META_SAVEDC = 0x001e;
 const META_RESTOREDC = 0x0127;
 const META_SELECTOBJECT = 0x012d;
@@ -110,7 +127,6 @@ const META_DIBCREATEPATTERNBRUSH = 0x0142;
  * claim an object-table slot. Tracking them keeps later SELECTOBJECT indices right.
  */
 const OPAQUE_CREATE_RECORDS = new Set([
-  META_CREATEFONTINDIRECT,
   META_CREATEPALETTE,
   META_CREATEPATTERNBRUSH,
   META_CREATEREGION,
@@ -126,7 +142,15 @@ const OPAQUE_CREATE_RECORDS = new Set([
 const RESERVED_SLOT = 'reserved';
 
 /** An object table entry: a usable object, a reserved slot, or a free slot. */
-type ObjectSlot = Brush | Pen | typeof RESERVED_SLOT | null;
+type ObjectSlot = Brush | Pen | GdiFont | typeof RESERVED_SLOT | null;
+
+/** LOGFONT bytes before the facename, and the cap on the facename itself. */
+const LOGFONT_FIXED_SIZE = 18;
+const FACENAME_MAX = 32;
+
+// ExtTextOut options that prefix the string with a rectangle.
+const ETO_OPAQUE = 0x0002;
+const ETO_CLIPPED = 0x0004;
 
 interface WmfHeader {
   /** Offset of the first record, in bytes. */
@@ -181,6 +205,7 @@ export function parseWmfVector(data: Uint8Array): MetafileVectorImage | null {
   if (!header) return null;
 
   const paths: MetafileVectorImage['paths'] = [];
+  const texts: NonNullable<MetafileVectorImage['texts']> = [];
   let dc: DeviceContext = createDeviceContext();
   const dcStack: DeviceContext[] = [];
   /** WMF addresses objects by table index, and a create record takes the lowest free slot. */
@@ -232,6 +257,12 @@ export function parseWmfVector(data: Uint8Array): MetafileVectorImage | null {
   };
   const toDevice = (p: Point): Point => toDeviceWith(p, dc);
 
+  /** Record that the file painted something, and freeze the canvas it painted on. */
+  const markEmitted = () => {
+    if (!frameDc && windowExtSet) frameDc = { ...dc };
+    emitted = true;
+  };
+
   /** Paint geometry with the current pen and brush. */
   const draw = (segments: string[], fill: boolean, stroke: boolean) => {
     if (segments.length === 0) return;
@@ -248,12 +279,92 @@ export function parseWmfVector(data: Uint8Array): MetafileVectorImage | null {
       stroke: stroked ? dc.pen.color : 'none',
       strokeWidth: stroked ? Math.max(dc.pen.width * penScale, 0) : 0,
     });
-    if (!frameDc && windowExtSet) frameDc = { ...dc };
-    emitted = true;
+    markEmitted();
+  };
+
+  /**
+   * Paint a text run with the current font, colour and alignment.
+   *
+   * `dx`, when the record carried one, holds the advance of every source *byte*
+   * — a double-byte character contributes two entries — and GDI honours it in
+   * preference to the font's own metrics. Keeping it is what holds an equation
+   * or a positioned label together on a machine without the original typeface.
+   */
+  const drawText = (bytes: Uint8Array, refX: number, refY: number, dx: number[] | null) => {
+    if (texts.length >= MAX_TEXTS) return;
+    const font = dc.font;
+    const { text, byteCounts } = decodeGdiText(bytes, font.charset, font.facename);
+    const chars = Array.from(text);
+    if (chars.length === 0) return;
+
+    // Fold each character's bytes together so one advance lines up with one glyph.
+    let advances: number[] | null = null;
+    if (dx && byteCounts.length === chars.length) {
+      advances = [];
+      let cursor = 0;
+      for (const count of byteCounts) {
+        let advance = 0;
+        for (let i = 0; i < count && cursor < dx.length; i++, cursor++) advance += dx[cursor];
+        advances.push(advance + dc.textCharExtra);
+      }
+    }
+
+    // TA_UPDATECP makes the DC's current position the reference point and the
+    // record's own coordinates dead weight.
+    const usesCurrentPoint = (dc.textAlign & TA_UPDATECP) !== 0;
+    const originX = usesCurrentPoint ? current.x : refX;
+    const originY = usesCurrentPoint ? current.y : refY;
+
+    const { sx, sy } = scaleOf(dc);
+    // The window mapping repositions glyphs but never mirrors them.
+    const scaleX = Math.abs(sx) || 1;
+    const fontSize = font.size * (Math.abs(sy) || 1);
+    const origin = toDevice({ x: originX, y: originY });
+
+    const advance = advances
+      ? advances.reduce((sum, value) => sum + value, 0)
+      : estimateTextAdvance(text, font.size) + dc.textCharExtra * chars.length;
+    const anchor = textAnchorOf(dc.textAlign);
+
+    let xs: number[] | undefined;
+    if (advances) {
+      // Giving every glyph its own position also makes every glyph its own text
+      // chunk, so the run's alignment has to be resolved into those positions
+      // instead of being left to `text-anchor`.
+      const shift = anchor === 'end' ? advance : anchor === 'middle' ? advance / 2 : 0;
+      let pen = origin.x - shift * scaleX;
+      xs = [];
+      for (const step of advances) {
+        xs.push(pen);
+        pen += step * scaleX;
+      }
+    }
+
+    texts.push({
+      text,
+      x: origin.x,
+      // The reference point is the top of the cell unless the file says
+      // otherwise, so the baseline usually sits an ascent below it.
+      y: origin.y + baselineOffset(dc.textAlign, fontSize),
+      xs,
+      fill: dc.textColor,
+      fontFamily: gdiFontStack(font),
+      fontSize,
+      fontWeight: font.weight,
+      italic: font.italic,
+      underline: font.underline,
+      strikeOut: font.strikeOut,
+      // Escapement is counter-clockwise in tenths of a degree; SVG turns the
+      // other way.
+      rotation: -font.escapement / 10,
+      anchor,
+    });
+    if (usesCurrentPoint) current = { x: originX + advance, y: originY };
+    markEmitted();
   };
 
   /** Put a new object in the lowest free slot, mirroring GDI's allocation. */
-  const addObject = (obj: Brush | Pen | typeof RESERVED_SLOT) => {
+  const addObject = (obj: Brush | Pen | GdiFont | typeof RESERVED_SLOT) => {
     const free = objects.indexOf(null);
     if (free >= 0) objects[free] = obj;
     else objects.push(obj);
@@ -380,6 +491,9 @@ export function parseWmfVector(data: Uint8Array): MetafileVectorImage | null {
           addObject(RESERVED_SLOT);
         }
         break;
+      case META_CREATEFONTINDIRECT:
+        addObject(readLogFont(data, view, body, bodyBytes) ?? RESERVED_SLOT);
+        break;
       case META_SELECTOBJECT:
         if (has(1)) {
           const index = view.getUint16(body, true);
@@ -393,7 +507,8 @@ export function parseWmfVector(data: Uint8Array): MetafileVectorImage | null {
           } else {
             const obj = objects[index];
             if (obj && obj !== RESERVED_SLOT) {
-              if (isPen(obj)) dc.pen = obj;
+              if (isFont(obj)) dc.font = obj;
+              else if (isPen(obj)) dc.pen = obj;
               else dc.brush = obj;
             }
           }
@@ -489,6 +604,56 @@ export function parseWmfVector(data: Uint8Array): MetafileVectorImage | null {
         break;
       }
 
+      // --- Text ---
+      case META_SETTEXTCOLOR:
+        if (has(2)) dc.textColor = colorRefToHex(view.getUint32(body, true));
+        break;
+      case META_SETTEXTALIGN:
+        if (has(1)) dc.textAlign = view.getUint16(body, true);
+        break;
+      case META_SETTEXTCHAREXTRA:
+        if (has(1)) dc.textCharExtra = p16(0);
+        break;
+
+      case META_TEXTOUT: {
+        // Unusually, the string sits between the length and the position, and
+        // it is padded to a whole word before the y, x pair that follows it.
+        if (!has(1)) break;
+        const count = view.getUint16(body, true);
+        const padded = count + (count & 1);
+        if (bodyBytes < 2 + padded + 4) break;
+        drawText(
+          data.subarray(body + 2, body + 2 + count),
+          view.getInt16(body + 4 + padded, true),
+          view.getInt16(body + 2 + padded, true),
+          null,
+        );
+        break;
+      }
+      case META_EXTTEXTOUT: {
+        // y, x, StringLength, fwOpts, [Rectangle], String, Dx.
+        if (!has(4)) break;
+        const refY = p16(0);
+        const refX = p16(1);
+        const count = view.getUint16(body + 4, true);
+        const options = view.getUint16(body + 6, true);
+        let cursor = body + 8;
+        if (options & (ETO_OPAQUE | ETO_CLIPPED)) cursor += 8;
+        const padded = count + (count & 1);
+        if (cursor + padded > body + bodyBytes) break;
+
+        // The Dx array is optional, and a truncated one is unusable: a partial
+        // run of advances would bunch the tail of the string at one point.
+        const dxStart = cursor + padded;
+        let dx: number[] | null = null;
+        if (count > 0 && dxStart + count * 2 <= body + bodyBytes) {
+          dx = [];
+          for (let i = 0; i < count; i++) dx.push(view.getInt16(dxStart + i * 2, true));
+        }
+        drawText(data.subarray(cursor, cursor + count), refX, refY, dx);
+        break;
+      }
+
       // Recognised but intentionally ignored: they change raster state we do not
       // model, or create an object whose slot still has to be reserved.
       case META_SETBKMODE:
@@ -509,7 +674,7 @@ export function parseWmfVector(data: Uint8Array): MetafileVectorImage | null {
 
   const frame = computeFrame(frameDc, header, toDeviceWith);
   if (!frame) return null;
-  return { ...frame, paths };
+  return { ...frame, paths, texts };
 }
 
 /**
@@ -563,6 +728,41 @@ function frameFromCorners(a: Point, b: Point): Omit<MetafileVectorImage, 'paths'
 
 /** Serialize a converted drawing as a standalone SVG document. */
 export const wmfVectorToSvg = metafileVectorToSvg;
+
+/**
+ * Read the LOGFONT a CreateFontIndirect record carries.
+ *
+ * The facename is raw bytes in the font's own code page, so a CJK typeface name
+ * only survives if it is decoded with the charset recorded beside it.
+ */
+function readLogFont(
+  data: Uint8Array,
+  view: DataView,
+  body: number,
+  bodyBytes: number,
+): GdiFont | null {
+  if (bodyBytes < LOGFONT_FIXED_SIZE) return null;
+  const charset = data[body + 13];
+  const nameEnd = Math.min(body + bodyBytes, body + LOGFONT_FIXED_SIZE + FACENAME_MAX);
+  const nameBytes = data.subarray(body + LOGFONT_FIXED_SIZE, nameEnd);
+  const terminator = nameBytes.indexOf(0);
+  return {
+    facename: decodeGdiFacename(
+      terminator < 0 ? nameBytes : nameBytes.subarray(0, terminator),
+      charset,
+    ),
+    // A zero height asks GDI for a default size; nothing in the file says what
+    // it was, so fall back to a legible one rather than to invisible text.
+    size: logFontEmSize(view.getInt16(body, true)) || 12,
+    weight: view.getInt16(body + 8, true) || 400,
+    italic: data[body + 10] !== 0,
+    underline: data[body + 11] !== 0,
+    strikeOut: data[body + 12] !== 0,
+    escapement: view.getInt16(body + 4, true),
+    charset,
+    pitchAndFamily: data[body + 17],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Record readers

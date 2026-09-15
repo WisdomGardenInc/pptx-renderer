@@ -108,8 +108,10 @@ library does **not** implement a complete EMF/WMF renderer. It handles the commo
 cases: an EMF carrying an embedded PDF preview, an embedded bitmap preview, or a plain
 GDI drawing — paths, polygons, beziers, solid brushes and pens — converted to SVG with no
 extra dependency. WMF is converted the same way (polygons, rectangles, ellipses,
-arc/pie/chord, pens and brushes). Records outside that subset — text output, bitmap
-blits, clipping regions, and for WMF hatch/pattern textures — are skipped.
+arc/pie/chord, pens and brushes) and additionally draws its text records, so equation and
+label pictures built entirely from text come through. Records outside that subset — EMF
+text output, bitmap blits, clipping regions, and for WMF hatch/pattern textures — are
+skipped.
 
 For EMF files with embedded PDF previews, install `pdfjs-dist` and pass explicit asset
 URLs. This keeps PDF.js optional and avoids forcing every consumer bundle to include it.
@@ -750,7 +752,7 @@ Dev pages at `http://127.0.0.1:5173`:
 
 ## What's Not Yet Supported
 
-3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, the 37 deformation WordArt text warps (inflate, deflate, wave, can, triangle, chevron, slant, cascade and the rest; the three baseline warps — arch up, arch down and circle — are supported), chartex layouts other than waterfall and funnel (treemap, sunburst, box & whisker, histogram, Pareto, region map), executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG; the remaining metafile record families (text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
+3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, the 37 deformation WordArt text warps (inflate, deflate, wave, can, triangle, chevron, slant, cascade and the rest; the three baseline warps — arch up, arch down and circle — are supported), chartex layouts other than waterfall and funnel (treemap, sunburst, box & whisker, histogram, Pareto, region map), executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG, including WMF text output; the remaining metafile record families (EMF text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
 
 ## FAQ
 

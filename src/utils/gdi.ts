@@ -9,6 +9,8 @@
  * only its own record decoding.
  */
 
+import { cssFontFamilyStack } from '../renderer/fontResolver';
+
 // --- Map modes --------------------------------------------------------------
 const MM_TEXT = 1;
 const MM_LOMETRIC = 2;
@@ -46,10 +48,41 @@ export const PS_NULL = 5;
 
 export const ALTERNATE_FILL = 1;
 
+// --- Text alignment (SetTextAlign flags) ------------------------------------
+/** The record's own reference point is ignored; the DC's current position is used. */
+export const TA_UPDATECP = 0x0001;
+const TA_HORIZONTAL_MASK = 0x0006;
+const TA_RIGHT = 0x0002;
+const TA_CENTER = 0x0006;
+const TA_VERTICAL_MASK = 0x0018;
+const TA_BOTTOM = 0x0008;
+const TA_BASELINE = 0x0018;
+
+/**
+ * Ascent and descent as a fraction of the em.
+ *
+ * GDI aligns text with the selected font's real metrics, which are not in the
+ * file and not measurable before the SVG is rendered. These are the typical
+ * proportions of a text face, and only matter for the top- and bottom-aligned
+ * cases: the far more common baseline alignment needs no estimate at all.
+ */
+const ASCENT_RATIO = 0.88;
+const DESCENT_RATIO = 0.12;
+
+/**
+ * Character height as a fraction of the LOGFONT cell height.
+ *
+ * A positive LOGFONT height is the cell height — ascent plus descent — while a
+ * CSS font-size is the em. The two differ by roughly this much in a typical
+ * text face; a negative height already *is* the em and needs no conversion.
+ */
+const CELL_HEIGHT_TO_EM = 1 / (ASCENT_RATIO + DESCENT_RATIO);
+
 // --- Safety limits ----------------------------------------------------------
 export const MAX_RECORDS = 500_000;
 export const MAX_PATHS = 100_000;
 export const MAX_POINTS_PER_RECORD = 100_000;
+export const MAX_TEXTS = 100_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +101,34 @@ export interface MetafileVectorPath {
   strokeWidth: number;
 }
 
+/** A single run of text placed on its baseline, in device units. */
+export interface MetafileVectorText {
+  /** Content, already decoded from the font's charset to Unicode. */
+  text: string;
+  /** Baseline start in device units, and the origin any rotation turns about. */
+  x: number;
+  y: number;
+  /**
+   * Per-character baseline positions in device units, when the record carried a
+   * Dx array. GDI spaces glyphs by that array rather than by the font's own
+   * advances, so honouring it keeps a run aligned even when the viewer
+   * substitutes a different face.
+   */
+  xs?: number[];
+  fill: string;
+  /** Ready-to-use CSS font-family list. */
+  fontFamily: string;
+  /** Em size in device units. */
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  underline: boolean;
+  strikeOut: boolean;
+  /** Clockwise rotation in degrees about `(x, y)`. */
+  rotation: number;
+  anchor: 'start' | 'middle' | 'end';
+}
+
 /** A converted metafile drawing. Coordinates are device units. */
 export interface MetafileVectorImage {
   x: number;
@@ -75,6 +136,8 @@ export interface MetafileVectorImage {
   width: number;
   height: number;
   paths: MetafileVectorPath[];
+  /** Text runs, drawn above the geometry in the order GDI emitted them. */
+  texts?: MetafileVectorText[];
 }
 
 export interface Point {
@@ -96,6 +159,24 @@ export interface Pen {
   width: number;
 }
 
+/** A selected logical font, as much of LOGFONT as drawing text needs. */
+export interface GdiFont {
+  /** Typeface name, already decoded from the charset it was recorded in. */
+  facename: string;
+  /** Em size in logical units, always positive. */
+  size: number;
+  weight: number;
+  italic: boolean;
+  underline: boolean;
+  strikeOut: boolean;
+  /** Baseline rotation in tenths of a degree, counter-clockwise. */
+  escapement: number;
+  /** LOGFONT CharSet, which decides how the text bytes are decoded. */
+  charset: number;
+  /** LOGFONT PitchAndFamily; only its family bits are used, to pick a fallback. */
+  pitchAndFamily: number;
+}
+
 /** 2x3 affine matrix (GDI XFORM), mapping world space to page space. */
 export interface Xform {
   m11: number;
@@ -111,6 +192,12 @@ export const IDENTITY: Xform = { m11: 1, m12: 0, m21: 0, m22: 1, dx: 0, dy: 0 };
 export interface DeviceContext {
   brush: Brush;
   pen: Pen;
+  font: GdiFont;
+  textColor: string;
+  /** SetTextAlign flags. */
+  textAlign: number;
+  /** SetTextCharacterExtra: extra space after every character, in logical units. */
+  textCharExtra: number;
   fillRule: 'nonzero' | 'evenodd';
   mapMode: number;
   winOrg: Point;
@@ -120,11 +207,28 @@ export interface DeviceContext {
   xform: Xform;
 }
 
-/** A pen and brush a freshly created DC starts with. */
+/** The system font a DC starts with, standing in for GDI's SYSTEM_FONT. */
+const DEFAULT_FONT: GdiFont = {
+  facename: '',
+  size: 12,
+  weight: 400,
+  italic: false,
+  underline: false,
+  strikeOut: false,
+  escapement: 0,
+  charset: 0,
+  pitchAndFamily: 0,
+};
+
+/** A pen, brush and font a freshly created DC starts with. */
 export function createDeviceContext(): DeviceContext {
   return {
     brush: { visible: true, color: '#FFFFFF' },
     pen: { visible: true, color: '#000000', width: 0 },
+    font: DEFAULT_FONT,
+    textColor: '#000000',
+    textAlign: 0,
+    textCharExtra: 0,
     fillRule: 'evenodd',
     mapMode: MM_TEXT,
     winOrg: { x: 0, y: 0 },
@@ -135,9 +239,13 @@ export function createDeviceContext(): DeviceContext {
   };
 }
 
-/** Distinguishes the two object kinds stored in one GDI object table. */
-export function isPen(obj: Brush | Pen): obj is Pen {
+/** Distinguishes the object kinds stored in one GDI object table. */
+export function isPen(obj: Brush | Pen | GdiFont): obj is Pen {
   return 'width' in obj;
+}
+
+export function isFont(obj: Brush | Pen | GdiFont): obj is GdiFont {
+  return 'facename' in obj;
 }
 
 // ---------------------------------------------------------------------------
@@ -352,25 +460,331 @@ export function stockObject(handle: number): Brush | Pen | null {
 }
 
 // ---------------------------------------------------------------------------
+// Text
+// ---------------------------------------------------------------------------
+
+const SYMBOL_CHARSET = 2;
+
+/**
+ * Windows code page for each LOGFONT CharSet, as a `TextDecoder` label.
+ *
+ * A metafile stores text as raw bytes in the selected font's charset, with no
+ * marker of its own, so the font is the only thing that says how to read them —
+ * get this wrong on a CJK file and every glyph is mojibake.
+ */
+const CHARSET_ENCODINGS: Record<number, string> = {
+  0: 'windows-1252', // ANSI
+  128: 'shift_jis',
+  129: 'euc-kr',
+  130: 'euc-kr', // Johab, close enough for face names
+  134: 'gbk', // GB2312
+  136: 'big5',
+  161: 'windows-1253', // Greek
+  162: 'windows-1254', // Turkish
+  163: 'windows-1258', // Vietnamese
+  177: 'windows-1255', // Hebrew
+  178: 'windows-1256', // Arabic
+  186: 'windows-1257', // Baltic
+  204: 'windows-1251', // Cyrillic
+  222: 'windows-874', // Thai
+  238: 'windows-1250', // Central European
+  255: 'windows-1252', // OEM
+};
+
+/**
+ * Adobe Symbol encoding, from 0x20 up, as Unicode.
+ *
+ * The Symbol font is not text in any code page: its bytes are glyph slots, and
+ * a run reading `ec ef ef ee` is the four pieces of a tall curly brace, not
+ * accented Latin letters. Equation editors emit almost nothing else, so mapping
+ * the slots to their Unicode equivalents is what makes those files legible.
+ */
+const SYMBOL_TO_UNICODE =
+  ' !\u2200#\u2203%&\u220b()\u2217+,\u2212./0123456789:;<=>?' +
+  '\u2245\u0391\u0392\u03a7\u0394\u0395\u03a6\u0393\u0397\u0399\u03d1\u039a\u039b\u039c\u039d\u039f' +
+  '\u03a0\u0398\u03a1\u03a3\u03a4\u03a5\u03c2\u03a9\u039e\u03a8\u0396[\u2234]\u22a5_' +
+  '\u203e\u03b1\u03b2\u03c7\u03b4\u03b5\u03c6\u03b3\u03b7\u03b9\u03d5\u03ba\u03bb\u03bc\u03bd\u03bf' +
+  '\u03c0\u03b8\u03c1\u03c3\u03c4\u03c5\u03d6\u03c9\u03be\u03c8\u03b6{|}\u223c' +
+  '                                 ' + // 0x7f-0x9f: unassigned
+  '\u20ac\u03d2\u2032\u2264\u2044\u221e\u0192\u2663\u2666\u2665\u2660\u2194\u2190\u2191\u2192\u2193' +
+  '\u00b0\u00b1\u2033\u2265\u00d7\u221d\u2202\u2022\u00f7\u2260\u2261\u2248\u2026\u23d0\u2500\u21b5' +
+  '\u2135\u2111\u211c\u2118\u2297\u2295\u2205\u2229\u222a\u2283\u2287\u2284\u2282\u2286\u2208\u2209' +
+  '\u2220\u2207\u00ae\u00a9\u2122\u220f\u221a\u22c5\u00ac\u2227\u2228\u21d4\u21d0\u21d1\u21d2\u21d3' +
+  '\u25ca\u2329\u00ae\u00a9\u2122\u2211\u239b\u239c\u239d\u23a1\u23a2\u23a3\u23a7\u23a8\u23a9\u23aa' +
+  ' \u232a\u222b\u2320\u23ae\u2321\u239e\u239f\u23a0\u23a4\u23a5\u23a6\u23ab\u23ac\u23ad';
+
+const decoderCache = new Map<string, TextDecoder | null>();
+
+function decoderFor(label: string): TextDecoder | null {
+  const cached = decoderCache.get(label);
+  if (cached !== undefined) return cached;
+  let decoder: TextDecoder | null;
+  try {
+    decoder = new TextDecoder(label);
+  } catch {
+    decoder = null; // Runtime without that legacy code page.
+  }
+  decoderCache.set(label, decoder);
+  return decoder;
+}
+
+function isSymbolFont(facename: string): boolean {
+  return facename.trim().toLowerCase() === 'symbol';
+}
+
+/** Charsets whose code pages are multi-byte, where one byte is not one glyph. */
+const DBCS_CHARSETS = new Set([128, 129, 130, 134, 136]);
+
+interface DecodedGdiText {
+  text: string;
+  /**
+   * Source bytes each character was decoded from.
+   *
+   * A metafile's Dx array is indexed by byte, not by character, so a run of
+   * double-byte text needs this to fold two spacing entries onto one glyph.
+   */
+  byteCounts: number[];
+}
+
+/** Every character came from exactly one byte. */
+function singleByteRuns(text: string): DecodedGdiText {
+  return { text, byteCounts: Array.from(text, () => 1) };
+}
+
+/**
+ * Decode metafile text bytes using the charset the font was created with.
+ *
+ * Symbol-charset fonts other than Symbol itself (Wingdings and friends) keep
+ * their bytes, lifted into the private-use area their own `cmap` uses, so a
+ * viewer that has the face installed still draws the intended dingbat.
+ */
+export function decodeGdiText(
+  bytes: Uint8Array,
+  charset: number,
+  facename: string,
+): DecodedGdiText {
+  if (isSymbolFont(facename)) {
+    let out = '';
+    for (const byte of bytes) {
+      const mapped = byte >= 0x20 ? SYMBOL_TO_UNICODE[byte - 0x20] : undefined;
+      out += mapped ?? String.fromCharCode(byte);
+    }
+    return singleByteRuns(out);
+  }
+  if (charset === SYMBOL_CHARSET) {
+    let out = '';
+    for (const byte of bytes) out += String.fromCharCode(0xf000 + byte);
+    return singleByteRuns(out);
+  }
+
+  const label = CHARSET_ENCODINGS[charset] ?? 'windows-1252';
+  if (!DBCS_CHARSETS.has(charset)) {
+    const decoder = decoderFor(label);
+    if (decoder) return singleByteRuns(decoder.decode(bytes));
+    let out = '';
+    for (const byte of bytes) out += String.fromCharCode(byte);
+    return singleByteRuns(out);
+  }
+  return decodeDbcs(bytes, label);
+}
+
+/**
+ * Decode a multi-byte run one byte at a time, recording how many bytes each
+ * character consumed. Feeding the decoder in single-byte chunks is what makes
+ * that boundary observable: it emits nothing until a character is complete.
+ */
+function decodeDbcs(bytes: Uint8Array, label: string): DecodedGdiText {
+  let decoder: TextDecoder;
+  try {
+    decoder = new TextDecoder(label);
+  } catch {
+    let out = '';
+    for (const byte of bytes) out += String.fromCharCode(byte);
+    return singleByteRuns(out);
+  }
+
+  let text = '';
+  const byteCounts: number[] = [];
+  let pending = 0;
+  const take = (piece: string) => {
+    for (const _ of piece) {
+      byteCounts.push(pending);
+      pending = 0;
+    }
+    text += piece;
+  };
+  for (let i = 0; i < bytes.length; i++) {
+    pending++;
+    take(decoder.decode(bytes.subarray(i, i + 1), { stream: true }));
+  }
+  take(decoder.decode());
+  return { text, byteCounts };
+}
+
+/**
+ * Decode a LOGFONT facename.
+ *
+ * The name is ordinary text in the font's code page even when the font's
+ * charset marks its *contents* as symbol slots, so the symbol mappings that
+ * apply to the text drawn with it must not apply to its name.
+ */
+export function decodeGdiFacename(bytes: Uint8Array, charset: number): string {
+  return decodeGdiText(bytes, charset === SYMBOL_CHARSET ? 0 : charset, '').text;
+}
+
+/** Normalise a LOGFONT height to a positive em size. */
+export function logFontEmSize(height: number): number {
+  return height < 0 ? -height : height * CELL_HEIGHT_TO_EM;
+}
+
+/** Generic CSS family implied by the LOGFONT PitchAndFamily family bits. */
+function genericFamily(pitchAndFamily: number): string {
+  switch (pitchAndFamily & 0xf0) {
+    case 0x10:
+      return 'serif'; // FF_ROMAN
+    case 0x30:
+      return 'monospace'; // FF_MODERN
+    case 0x40:
+      return 'cursive'; // FF_SCRIPT
+    case 0x50:
+      return 'fantasy'; // FF_DECORATIVE
+    default:
+      return 'sans-serif'; // FF_SWISS and FF_DONTCARE
+  }
+}
+
+/**
+ * CSS font stack for a logical font.
+ *
+ * Symbol runs are decoded to real Unicode rather than kept as Symbol slots, so
+ * they ask for a maths-capable face instead: the brace and bracket pieces an
+ * equation is built from live outside any text font's repertoire.
+ */
+export function gdiFontStack(font: GdiFont): string {
+  if (isSymbolFont(font.facename)) {
+    return cssFontFamilyStack([
+      'Cambria Math',
+      'STIX Two Math',
+      'Segoe UI Symbol',
+      'Apple Symbols',
+      'serif',
+    ]);
+  }
+  const generic = genericFamily(font.pitchAndFamily);
+  if (!font.facename) return generic;
+  // The generic goes last: a CJK face brings its own substitution chain, and
+  // putting a bare `sans-serif` ahead of it would win before the chain is tried.
+  return `${cssFontFamilyStack([font.facename])}, ${generic}`;
+}
+
+/**
+ * Advance of a run in em units, used only to place text the file did not give a
+ * Dx array for. A CJK or fullwidth character occupies a full em, most others a
+ * half — the same rule GDI's own fallback metrics approximate.
+ */
+export function estimateTextAdvance(text: string, emSize: number): number {
+  let ems = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    ems += isWideCodePoint(code) ? 1 : 0.5;
+  }
+  return ems * emSize;
+}
+
+function isWideCodePoint(code: number): boolean {
+  return (
+    (code >= 0x1100 && code <= 0x115f) || // Hangul Jamo
+    (code >= 0x2e80 && code <= 0xa4cf) || // CJK radicals through Yi
+    (code >= 0xac00 && code <= 0xd7a3) || // Hangul syllables
+    (code >= 0xf900 && code <= 0xfaff) || // CJK compatibility ideographs
+    (code >= 0xfe30 && code <= 0xfe4f) || // CJK compatibility forms
+    (code >= 0xff00 && code <= 0xff60) || // Fullwidth forms
+    (code >= 0xffe0 && code <= 0xffe6) ||
+    (code >= 0x20000 && code <= 0x3fffd) // CJK extensions B and beyond
+  );
+}
+
+/** Where the horizontal reference point sits within the run. */
+export function textAnchorOf(textAlign: number): 'start' | 'middle' | 'end' {
+  switch (textAlign & TA_HORIZONTAL_MASK) {
+    case TA_RIGHT:
+      return 'end';
+    case TA_CENTER:
+      return 'middle';
+    default:
+      return 'start';
+  }
+}
+
+/**
+ * Distance from the reference point down to the baseline, in logical units.
+ *
+ * GDI's default is TA_TOP, where the reference point is the top of the cell;
+ * the baseline sits an ascent below it.
+ */
+export function baselineOffset(textAlign: number, emSize: number): number {
+  switch (textAlign & TA_VERTICAL_MASK) {
+    case TA_BASELINE:
+      return 0;
+    case TA_BOTTOM:
+      return -DESCENT_RATIO * emSize;
+    default:
+      return ASCENT_RATIO * emSize;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // SVG serialization
 // ---------------------------------------------------------------------------
 
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Serialize one text run as an SVG `<text>` element. */
+function textToSvg(t: MetafileVectorText): string {
+  // A multi-value x places every glyph itself, which also makes each glyph its
+  // own text chunk — so the anchor has to have been folded into the positions
+  // already, and only the single-position form can still carry one.
+  const x = t.xs && t.xs.length > 0 ? t.xs.map(fmtNumber).join(' ') : fmtNumber(t.x);
+  const attrs = [`x="${x}"`, `y="${fmtNumber(t.y)}"`, `fill="${t.fill}"`];
+  attrs.push(`font-family="${escapeXml(t.fontFamily)}"`);
+  attrs.push(`font-size="${fmtNumber(t.fontSize)}"`);
+  if (t.fontWeight !== 400) attrs.push(`font-weight="${Math.round(t.fontWeight)}"`);
+  if (t.italic) attrs.push('font-style="italic"');
+  const decorations: string[] = [];
+  if (t.underline) decorations.push('underline');
+  if (t.strikeOut) decorations.push('line-through');
+  if (decorations.length > 0) attrs.push(`text-decoration="${decorations.join(' ')}"`);
+  if (!t.xs && t.anchor !== 'start') attrs.push(`text-anchor="${t.anchor}"`);
+  if (t.rotation !== 0) {
+    attrs.push(`transform="rotate(${fmtNumber(t.rotation)} ${fmtNumber(t.x)} ${fmtNumber(t.y)})"`);
+  }
+  attrs.push('xml:space="preserve"');
+  return `<text ${attrs.join(' ')}>${escapeXml(t.text)}</text>`;
+}
+
 /** Serialize a converted drawing as a standalone SVG document. */
 export function metafileVectorToSvg(image: MetafileVectorImage): string {
-  const body = image.paths
-    .map((p) => {
-      const attrs = [`d="${p.d}"`];
-      attrs.push(`fill="${p.fill}"`);
-      if (p.fill !== 'none' && p.fillRule === 'evenodd') attrs.push('fill-rule="evenodd"');
-      if (p.stroke !== 'none') {
-        attrs.push(`stroke="${p.stroke}"`);
-        // A zero-width GDI pen is cosmetic: one device pixel.
-        attrs.push(`stroke-width="${fmtNumber(p.strokeWidth || 1)}"`);
-        attrs.push('stroke-linejoin="round"', 'stroke-linecap="round"');
-      }
-      return `<path ${attrs.join(' ')}/>`;
-    })
-    .join('');
+  const body =
+    image.paths
+      .map((p) => {
+        const attrs = [`d="${p.d}"`];
+        attrs.push(`fill="${p.fill}"`);
+        if (p.fill !== 'none' && p.fillRule === 'evenodd') attrs.push('fill-rule="evenodd"');
+        if (p.stroke !== 'none') {
+          attrs.push(`stroke="${p.stroke}"`);
+          // A zero-width GDI pen is cosmetic: one device pixel.
+          attrs.push(`stroke-width="${fmtNumber(p.strokeWidth || 1)}"`);
+          attrs.push('stroke-linejoin="round"', 'stroke-linecap="round"');
+        }
+        return `<path ${attrs.join(' ')}/>`;
+      })
+      .join('') + (image.texts ?? []).map(textToSvg).join('');
   const viewBox =
     `${fmtNumber(image.x)} ${fmtNumber(image.y)} ` +
     `${fmtNumber(image.width)} ${fmtNumber(image.height)}`;

@@ -149,16 +149,24 @@ decoding sits beside it.
   bitmap blits, clipping regions and arc records are skipped.
 - **WMF** (`src/utils/wmfVector.ts`): placeable and plain headers, window/viewport
   mapping, DC stack, pens/brushes, polygon/polyline/polypolygon, rectangle, round
-  rectangle, ellipse, arc/pie/chord, line/move. Text output, bitmap blits, clipping
-  regions and hatch/pattern textures (drawn as their solid colour) are skipped.
+  rectangle, ellipse, arc/pie/chord, line/move, and text output — `TextOut` and
+  `ExtTextOut` with fonts, charsets, colour, alignment and per-glyph Dx spacing.
+  Bitmap blits, clipping regions, opaque text backgrounds and hatch/pattern
+  textures (drawn as their solid colour) are skipped.
 
 WMF gotchas, all of which cost real debugging time:
 
 - Record lengths count 16-bit WORDs, not bytes, and the function code follows the length.
 - Rectangle-shaped records store coordinates **reversed** (`bottom, right, top, left`);
   points inside the poly\* arrays stay in natural `x, y` order.
-- Objects have no handles. Every create record — fonts and palettes included — claims the
-  lowest free slot, so one that is skipped shifts every later `SELECTOBJECT` index.
+- Objects have no handles. Every create record — palettes and regions included — claims
+  the lowest free slot, so one that is skipped shifts every later `SELECTOBJECT` index.
+- Text bytes carry no encoding of their own: the selected font's `CharSet` is the only
+  thing that says how to read them, and a `Symbol` font's bytes are glyph slots rather
+  than text in any code page. Equation-editor pictures are often nothing but those.
+- `ExtTextOut`'s Dx array is indexed by source **byte**, so a double-byte character
+  contributes two entries; and `TA_UPDATECP` makes the record's own x/y dead weight —
+  the DC's current position, moved by a preceding `MoveTo`, is the reference point.
 - The viewBox must come from the window in force **when drawing starts**, not the first
   window declared: real clip art opens with a placeholder 1x1 window. The placeable
   bounding box is only a fallback — it is in its own physical units, so it is the wrong
