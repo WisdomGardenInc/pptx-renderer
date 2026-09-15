@@ -7,6 +7,58 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-15
+
+### Added
+
+- Render WMF pictures instead of a grey "Unsupported format: WMF" box that wiped out a whole
+  region of the slide. WMF is the 16-bit ancestor of EMF and draws with the same GDI model, so
+  the shared state — pens, brushes, stock objects, map modes, COLORREF, SVG serialization — now
+  lives in `src/utils/gdi.ts` and each format keeps only its own record decoding. Verified
+  against 190 real clip-art files shipped with WPS Office.
+- Draw the text records of a WMF (`TextOut`/`ExtTextOut`) with fonts, charsets, colour,
+  alignment and per-glyph `Dx` spacing. A MathType equation pasted into a deck arrives as an OLE
+  frame whose only preview is a WMF drawn entirely with text — the curly braces themselves being
+  Symbol font slots — so such a picture recovered no geometry at all and left a hole in the
+  slide. Text bytes carry no encoding of their own and are read through the selected font's
+  `CharSet`, DBCS code pages included; Symbol slots map to Unicode through the Adobe Symbol
+  table. EMF text output stays unsupported.
+- Render `ofPieChart` (pie of pie and bar of pie), which previously fell through to the
+  unsupported branch and replaced the whole plot with a line of small text. The `c:splitType`
+  rule that decides which points move to the secondary plot — with its `pos`/`val`/`percent`/
+  `cust` variants — lives in `chart/ofPie.ts` as pure functions, because getting it wrong still
+  draws a plausible chart that describes different data.
+- Render chartex (`cx:chartSpace`) waterfall and funnel charts. Office 2016's second chart
+  format shares nothing with `c:chartSpace` but the word "chart", so every one of its layouts
+  replaced the plot with a notice. The remaining chartex layouts (treemap, sunburst, box &
+  whisker, histogram, Pareto, region map) still report an unsupported-layout notice rather than
+  being drawn as a chart type whose numbers mean something else.
+- Render the `textCircle` WordArt warp alongside the two arch warps, transcribed from ECMA-376's
+  `presetTextWarpDefinitions.xml`. Only three of the 40 presets declare a single `<path>` and so
+  can be expressed as an SVG `<textPath>`; the other 37 are deformations between two envelopes
+  and continue to render as ordinary unwarped text.
+
+### Fixed
+
+- Keep the WMF object table's free slots distinct from slots held by an object the converter
+  cannot draw with. Both were `null`, so a later brush reused a font's slot and shifted every
+  subsequent `SELECTOBJECT` index.
+- Frame a WMF from the window in force when drawing starts rather than the first window
+  declared, and never mistake a device context's default 1x1 extent for a real one. Real clip
+  art opens with a placeholder window, and the scalable map modes divided such drawings away:
+  correct framing went from 41/190 to 189/190 of the clip-art corpus.
+- Give an `ofPieChart`'s aggregate slice the first colour its pie has not used. It indexed past
+  the end of the palette, which wraps, so a six-point series on a six-entry theme palette left
+  two slices and two legend entries indistinguishable. A bar of pie's column is also pinned to
+  its own stack total instead of being scaled against the pie's values, which had collapsed it
+  to a fifth of the plot height.
+
+### Changed
+
+- Corrected stale "not supported" claims in the documentation. Pattern fills, shadow/reflection/
+  glow effects, combo charts, secondary axes and OLE static previews had all been implemented for
+  some time, so the list was steering work toward re-implementing what already existed.
+
 ## [1.3.1] - 2026-09-11
 
 ### Fixed
