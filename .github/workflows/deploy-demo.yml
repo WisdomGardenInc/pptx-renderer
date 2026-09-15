@@ -4,12 +4,17 @@ name: Deploy Demo to GitHub Pages
 # Deploying every push keeps that true without a paths filter deciding which
 # commits matter -- a filter that guessed wrong would leave the demo silently
 # stale, which is the failure this trigger exists to prevent.
+#
+# Tags are deliberately not a trigger. The github-pages environment only accepts
+# deployments from main, so a tag run can only ever be rejected -- and because
+# every run shares the `pages` concurrency group, that doomed run cancels the
+# main-branch deploy pushed moments earlier. Tagging would then leave the demo
+# stale, which is exactly what this workflow exists to prevent. A release commit
+# reaches main on its own push, so nothing is lost.
 on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
