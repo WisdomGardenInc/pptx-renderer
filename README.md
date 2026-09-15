@@ -608,6 +608,7 @@ OOXML 3D chart elements such as `bar3DChart`, `line3DChart`, `pie3DChart`, `area
 
 - **Fills**: solid, linear/radial/rectangular gradient, 52+ pattern fills, image (stretch/tile)
 - **Strokes**: 8 dash styles, 5 arrowhead types, compound lines, line joins
+- **Effects**: outer shadow, inner shadow, glow, soft edge, and reflection on shapes, pictures, and text
 - **Colors**: OOXML pipeline — `schemeClr` → `colorMap` remap → theme lookup → modifiers (lumMod, lumOff, tint, shade, alpha, satMod, etc.). All 6 color spaces supported. Effective maps follow slide → layout → master overrides, including explicit identity mappings and master resets; chart-local maps remain isolated from the parent slide.
 
 Supported chart combinations include combo charts and secondary axes. Sparse scatter/bubble caches preserve missing coordinates and explicit zeros, with gap/span/zero handling; literal data sources and explicit negative-bar inversion flags are honored. Negative percent-stacked normalization is not newly guaranteed by these checks.
@@ -749,7 +750,7 @@ Dev pages at `http://127.0.0.1:5173`:
 
 ## What's Not Yet Supported
 
-3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, the 37 deformation WordArt text warps (inflate, deflate, wave, can, triangle, chevron, slant, cascade and the rest; the three baseline warps — arch up, arch down and circle — are supported), chartex layouts other than waterfall and funnel (treemap, sunburst, box & whisker, histogram, Pareto, region map), shadow/reflection/glow effects, executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG; the remaining metafile record families (text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
+3D effects, true 3D chart perspective/depth/surface meshes, animations/transitions, equations (OMML), complete EMF/WMF vector rendering, the 37 deformation WordArt text warps (inflate, deflate, wave, can, triangle, chevron, slant, cascade and the rest; the three baseline warps — arch up, arch down and circle — are supported), chartex layouts other than waterfall and funnel (treemap, sunburst, box & whisker, histogram, Pareto, region map), executing/editing embedded OLE objects, and slide notes rendering. Available OLE picture previews can render; they are not an OLE object engine. EMF bitmap and embedded-PDF previews remain supported (PDF previews require PDF.js), and plain EMF and WMF drawing records are converted to SVG; the remaining metafile record families (text output, blits, clipping, EMF arcs, WMF hatch/pattern textures) stay excluded.
 
 ## FAQ
 
