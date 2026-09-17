@@ -7,6 +7,21 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-17
+
+### Fixed
+
+- Shrink a wrapped `normAutofit` body by the height it overflows rather than by the width of an
+  unwrapped line. Such a box was measured twice — once as it wraps, once with white-space forced
+  to `nowrap` — and the second measurement won whenever the wrapped text fitted the width exactly
+  and overflowed only the height. The box was then scaled by its width against that of a single
+  unwrapped line, a width wrapped text never occupies. In a Chinese lecture deck three paragraphs
+  at 18pt overflowed a 1104x486 box by 12%, the unwrapped line ran to 2514px, and the body
+  rendered at roughly 7.9pt beneath a 24pt heading instead of at the 0.89 the height overflow
+  called for. PowerPoint keeps paragraphs wrapping at the box width while `normAutofit` shrinks
+  them, so the unwrapped width is never the right reference; `wrap="none"` bodies, `spAutoFit`,
+  and text that genuinely overflows horizontally once wrapped are unaffected.
+
 ## [1.4.0] - 2026-09-15
 
 ### Added
