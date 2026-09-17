@@ -996,6 +996,74 @@ describe('ShapeRenderer', () => {
     }
   });
 
+  it('shrinks a wrapped normAutofit body by height, not by its unwrapped line width', () => {
+    const isFitContainer = (el: HTMLElement) =>
+      el.style.display === 'flex' && el.style.flexDirection === 'column';
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return isFitContainer(this) ? 100 : 0;
+      });
+    const clientHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return isFitContainer(this) ? 100 : 0;
+      });
+    // Wrapped, the paragraphs fill the box width exactly and overflow its height by 25%.
+    // Unwrapped they would run to 500px — a width wrapped text never occupies, so scaling
+    // by that ratio would shrink to 0.2 instead of the 0.8 the height overflow calls for.
+    const scrollWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        if (!isFitContainer(this)) return 0;
+        return this.style.whiteSpace === 'nowrap' ? 500 : 100;
+      });
+    const scrollHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        if (!isFitContainer(this)) return 0;
+        return this.style.whiteSpace === 'nowrap' ? 25 : 125;
+      });
+
+    try {
+      const xml = `
+        <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+              xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <p:nvSpPr>
+            <p:cNvPr id="14" name="Wrapped Autofit Body"/>
+            <p:cNvSpPr/>
+            <p:nvPr/>
+          </p:nvSpPr>
+          <p:spPr>
+            <a:xfrm><a:off x="0" y="0"/><a:ext cx="1000000" cy="1000000"/></a:xfrm>
+            <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          </p:spPr>
+          <p:txBody>
+            <a:bodyPr><a:normAutofit lnSpcReduction="10000"/></a:bodyPr>
+            <a:lstStyle/>
+            <a:p><a:r><a:rPr sz="1800"/><a:t>First wrapped body paragraph</a:t></a:r></a:p>
+            <a:p><a:r><a:rPr sz="1800"/><a:t>Second wrapped body paragraph</a:t></a:r></a:p>
+          </p:txBody>
+        </p:sp>
+      `;
+
+      const el = renderShape(parseShapeNode(parseXml(xml)), createMockRenderContext());
+      const textContainer = Array.from(el.querySelectorAll('div')).find(
+        (div) =>
+          div.textContent?.includes('First wrapped body paragraph') &&
+          div.style.flexDirection === 'column',
+      ) as HTMLElement | undefined;
+
+      expect(textContainer).toBeDefined();
+      expect(textContainer!.style.transform).toBe('scale(0.8)');
+    } finally {
+      clientWidthSpy.mockRestore();
+      clientHeightSpy.mockRestore();
+      scrollWidthSpy.mockRestore();
+      scrollHeightSpy.mockRestore();
+    }
+  });
+
   it('preserves textBoxBounds pixel dimensions when explicit normAutofit still needs dynamic scale', () => {
     const isFitContainer = (el: HTMLElement) =>
       el.style.display === 'flex' && el.style.flexDirection === 'column';

@@ -2926,8 +2926,15 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
             wrappedWidthFits &&
             wrappedContentH > containerH &&
             containerH > 0;
+          // normAutofit shrinks wrapped text until it fits the shape height, and
+          // PowerPoint keeps the paragraphs wrapping at the box width while doing so.
+          // Measuring an unwrapped single line here would size the box against a width
+          // the text never occupies: a body box overflowing in height by 12% would
+          // shrink by the unwrapped width ratio (0.44) instead of the height one (0.89).
+          const usesWrappedNormAutofit = hasNormAutofit && textWrap !== 'none';
           const shouldMeasureUnwrappedWidth =
             !isVerticalText &&
+            !usesWrappedNormAutofit &&
             !spAutoFitAllowsHorizontalOverflow &&
             !wrappedFits &&
             (!wrappedWidthFits ||
