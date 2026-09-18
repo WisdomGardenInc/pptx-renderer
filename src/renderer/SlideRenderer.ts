@@ -56,6 +56,13 @@ export interface SlideRendererOptions {
   embeddedFontLimits?: EmbeddedFontLimits;
   /** Host-provided faces for fonts referenced by the PPTX but not embedded in it. */
   fontFaces?: readonly FontFaceConfig[];
+  /**
+   * Editing hook: invoked for every editable slide node right after its DOM element is
+   * produced (top-level nodes and group descendants alike; not master/layout template
+   * shapes). When set, each node wrapper is also stamped with `data-node-id` /
+   * `data-node-type`. Enables a host editor to map DOM→model. Off by default.
+   */
+  onNodeRendered?: (node: BaseNodeData, element: HTMLElement, ctx: RenderContext) => void;
 }
 
 /**
@@ -83,6 +90,18 @@ export interface SlideHandle {
  * This function is also passed into GroupRenderer for recursive child rendering.
  */
 function renderNode(node: BaseNodeData, ctx: RenderContext): HTMLElement {
+  const el = renderNodeElement(node, ctx);
+  // Editing instrumentation: only when a host editor opted in via `onNodeRendered`.
+  // Keeps normal rendering free of extra attributes and callback overhead.
+  if (ctx.onNodeRendered) {
+    el.dataset.nodeId = node.id;
+    el.dataset.nodeType = node.nodeType;
+    ctx.onNodeRendered(node, el, ctx);
+  }
+  return el;
+}
+
+function renderNodeElement(node: BaseNodeData, ctx: RenderContext): HTMLElement {
   switch (node.nodeType) {
     case 'shape':
       return renderShape(node as ShapeNodeData, ctx);
@@ -287,6 +306,9 @@ export function renderSlide(
   if (options?.onNavigate) {
     ctx.onNavigate = options.onNavigate;
   }
+  if (options?.onNodeRendered) {
+    ctx.onNodeRendered = options.onNodeRendered;
+  }
 
   // Create slide container
   const container = document.createElement('div');
@@ -317,6 +339,8 @@ export function renderSlide(
         slide: { ...ctx.slide, rels: ctx.master.rels },
         partPath: ctx.masterPath,
         skipPlaceholderChildren: true,
+        // Template shapes are not editable — don't stamp them or fire the editing hook.
+        onNodeRendered: undefined,
       };
       const masterShapes = getTemplateShapes(
         ctx.master.spTree,
@@ -341,6 +365,8 @@ export function renderSlide(
         slide: { ...ctx.slide, rels: ctx.layout.rels },
         partPath: ctx.layoutPath,
         skipPlaceholderChildren: true,
+        // Template shapes are not editable — don't stamp them or fire the editing hook.
+        onNodeRendered: undefined,
       };
       const layoutShapes = getTemplateShapes(
         ctx.layout.spTree,

@@ -882,3 +882,77 @@ describe('renderSlide', () => {
     expect(slideIndex).toBeGreaterThan(layoutIndex);
   });
 });
+
+describe('renderSlide onNodeRendered editing hook', () => {
+  it('stamps data-node-id/type and fires the hook once per top-level slide node', () => {
+    const pres = makeMinimalPres();
+    const slide: SlideData = {
+      index: 0,
+      nodes: [makeShape('1', 'Shape 1'), makeTextShape('2', 'Shape 2', 'hi')],
+      rels: new Map(),
+      showMasterSp: true,
+    };
+
+    const seen: Array<{ id: string; type: string; stampedId?: string; stampedType?: string }> = [];
+    const { element } = renderSlide(pres, slide, {
+      onNodeRendered: (node, el) => {
+        seen.push({
+          id: node.id,
+          type: node.nodeType,
+          stampedId: el.dataset.nodeId,
+          stampedType: el.dataset.nodeType,
+        });
+      },
+    });
+
+    // Fired exactly once per slide node, with matching identity stamped on the element.
+    expect(seen).toEqual([
+      { id: '1', type: 'shape', stampedId: '1', stampedType: 'shape' },
+      { id: '2', type: 'shape', stampedId: '2', stampedType: 'shape' },
+    ]);
+
+    // The stamped attributes are queryable in the rendered DOM for hit-testing.
+    expect(element.querySelector('[data-node-id="1"]')).not.toBeNull();
+    expect(element.querySelector('[data-node-id="2"]')).not.toBeNull();
+  });
+
+  it('adds no data-node-* attributes when the hook is absent (normal rendering)', () => {
+    const pres = makeMinimalPres();
+    const slide: SlideData = {
+      index: 0,
+      nodes: [makeShape('1', 'Shape 1')],
+      rels: new Map(),
+      showMasterSp: true,
+    };
+    const { element } = renderSlide(pres, slide);
+    expect(element.querySelector('[data-node-id]')).toBeNull();
+  });
+
+  it('fires the hook for group descendants, not just top-level nodes', () => {
+    const pres = buildPresentation(makeNestedCompatibleGroupFiles());
+    const ids: string[] = [];
+    renderSlide(pres, pres.slides[0], {
+      onNodeRendered: (node) => ids.push(node.id),
+    });
+    // Outer group (10), inner group (11), and both nested shapes (12, 13) reach the hook.
+    expect(ids).toContain('10');
+    expect(ids).toContain('11');
+    expect(ids).toContain('12');
+    expect(ids).toContain('13');
+  });
+
+  it('does not fire the hook for master/layout template shapes', () => {
+    const pres = makeMinimalPres();
+    // Put an editable shape on the slide; template spTrees are empty, so if the hook
+    // ever fired for template shapes it would show ids other than the slide node.
+    const slide: SlideData = {
+      index: 0,
+      nodes: [makeShape('42', 'Only editable shape')],
+      rels: new Map(),
+      showMasterSp: true,
+    };
+    const ids: string[] = [];
+    renderSlide(pres, slide, { onNodeRendered: (node) => ids.push(node.id) });
+    expect(ids).toEqual(['42']);
+  });
+});

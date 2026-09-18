@@ -76,3 +76,8 @@ export type { TableNodeData, TableCell, TableRow } from './model/nodes/TableNode
 export type { GroupNodeData } from './model/nodes/GroupNode';
 export type { ChartNodeData } from './model/nodes/ChartNode';
 export type { PptxFiles } from './parser/ZipParser';
+
+// Low-level authoring/editing primitives: parse raw OOXML and build a shape node from it.
+// Useful for editors that add or restyle elements against the live model.
+export { parseXml, SafeXmlNode } from './parser/XmlParser';
+export { parseShapeNode, parseTextBody } from './model/nodes/ShapeNode';

@@ -8,6 +8,7 @@ import { ThemeData } from '../model/Theme';
 import { MasterData } from '../model/Master';
 import { LayoutData } from '../model/Layout';
 import { SafeXmlNode } from '../parser/XmlParser';
+import type { BaseNodeData } from '../model/nodes/BaseNode';
 import type { EChartsType } from 'echarts/core';
 import type { PdfjsConfig } from '../utils/pdfRenderer';
 
@@ -54,6 +55,14 @@ export interface RenderContext {
    * or with a URL string for external links.
    */
   onNavigate?: (target: { slideIndex?: number; url?: string }) => void;
+  /**
+   * Editing hook: invoked for every editable slide node right after its DOM element is
+   * produced (top-level nodes and group descendants alike). Not fired for master/layout
+   * template shapes. When set, each node's wrapper is also stamped with
+   * `data-node-id` / `data-node-type` for DOM→model hit-testing. Off by default, so normal
+   * rendering is unchanged.
+   */
+  onNodeRendered?: (node: BaseNodeData, element: HTMLElement, ctx: RenderContext) => void;
 }
 
 export function createRenderContext(

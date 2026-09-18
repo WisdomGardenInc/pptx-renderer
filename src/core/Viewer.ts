@@ -2,7 +2,7 @@ import { parseZip, parseZipLazyMedia } from '../parser/ZipParser';
 import type { ZipParseLimits } from '../parser/ZipParser';
 import { buildPresentation, PresentationData } from '../model/Presentation';
 import { renderSlide as renderSlideInternal } from '../renderer/SlideRenderer';
-import type { SlideHandle } from '../renderer/SlideRenderer';
+import type { SlideHandle, SlideRendererOptions } from '../renderer/SlideRenderer';
 import { isAllowedExternalUrl } from '../utils/urlSafety';
 import { prefetchChartPictureMedia } from '../utils/media';
 import {
@@ -496,6 +496,7 @@ export class PptxViewer extends EventTarget {
     index: number,
     container: HTMLElement,
     scale?: number,
+    options?: Pick<SlideRendererOptions, 'onNodeRendered'>,
   ): SlideHandle | null {
     if (!this.presentation) return null;
     const slide = this.presentation.slides[index];
@@ -508,6 +509,7 @@ export class PptxViewer extends EventTarget {
       embeddedFonts: this.viewerOptions.embeddedFonts,
       embeddedFontLimits: this.viewerOptions.embeddedFontLimits,
       fontFaces: this.viewerOptions.fontFaces,
+      onNodeRendered: options?.onNodeRendered,
     });
 
     if (scale !== undefined && scale !== 1) {
