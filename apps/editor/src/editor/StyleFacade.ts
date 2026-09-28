@@ -1,8 +1,4 @@
-import {
-  SafeXmlNode,
-  type ShapeNodeData,
-  type TextRun,
-} from '@wisdomgarden/pptx-renderer';
+import { SafeXmlNode, type ShapeNodeData, type TextRun } from '@wisdomgarden/pptx-renderer';
 
 const DML = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 
@@ -92,11 +88,7 @@ export function readFillColor(shape: ShapeNodeData): string | null {
 }
 
 export function readPlainText(shape: ShapeNodeData): string {
-  return (
-    shape.textBody?.paragraphs
-      .map((p) => p.runs.map((r) => r.text).join(''))
-      .join('\n') ?? ''
-  );
+  return shape.textBody?.paragraphs.map((p) => p.runs.map((r) => r.text).join('')).join('\n') ?? '';
 }
 
 // ---- write -----------------------------------------------------------------
@@ -105,7 +97,8 @@ export function applyTextStyle(shape: ShapeNodeData, patch: TextStylePatch): voi
   const doc = ownerDoc(shape);
   for (const run of runs(shape)) {
     const rPr = rPrElement(run, doc);
-    if (patch.fontSize !== undefined) rPr.setAttribute('sz', String(Math.round(patch.fontSize * 100)));
+    if (patch.fontSize !== undefined)
+      rPr.setAttribute('sz', String(Math.round(patch.fontSize * 100)));
     if (patch.bold !== undefined) {
       if (patch.bold) rPr.setAttribute('b', '1');
       else rPr.removeAttribute('b');

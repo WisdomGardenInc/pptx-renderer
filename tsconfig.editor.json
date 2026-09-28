@@ -1,0 +1,22 @@
+{
+  // Declarations for the ./editor subpath. The editor core lives under apps/ rather
+  // than src/, so it falls outside the main build's program and needs its own pass —
+  // consumers that type-check (Next.js among them) will not read .ts out of a package.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "declarationMap": false,
+    "outDir": "dist/types/editor",
+    "rootDir": "apps/editor/src/editor",
+    "baseUrl": ".",
+    "paths": {
+      // The library's own declarations, not its source: pulling src/ into this
+      // program would put files outside rootDir and defeat the pass. Requires the
+      // main type build to have run first, which scripts/build.mjs guarantees.
+      "@wisdomgarden/pptx-renderer": ["./dist/types/index.d.ts"]
+    }
+  },
+  "include": ["apps/editor/src/editor"]
+}

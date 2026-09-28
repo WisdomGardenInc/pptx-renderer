@@ -81,3 +81,9 @@ export type { PptxFiles } from './parser/ZipParser';
 // Useful for editors that add or restyle elements against the live model.
 export { parseXml, SafeXmlNode } from './parser/XmlParser';
 export { parseShapeNode, parseTextBody } from './model/nodes/ShapeNode';
+
+// Slide writer: push model edits back into the slide's OOXML and serialize the part.
+// Incremental — untouched elements (charts, SmartArt, effects) pass through as-is.
+// Assembling a package from a baseline plus serialized parts is left to the caller.
+export { serializeSlide, syncSlide } from './writer/SlideWriter';
+export type { SerializedSlidePart } from './writer/SlideWriter';

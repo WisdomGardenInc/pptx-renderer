@@ -2,6 +2,8 @@ import {
   parseZip,
   buildPresentation,
   renderSlide,
+  serializeSlide,
+  type SerializedSlidePart,
   type PresentationData,
   type SlideData,
   type SlideHandle,
@@ -79,6 +81,18 @@ export class RenderHost {
   /** The shape currently being text-edited. Commit uses this, not the live selection,
    *  so clicking inside the editor (which can change selection) never loses the edit. */
   private editingShape: ShapeNodeData | null = null;
+
+  /**
+   * Set by `destroy()`. Every public entry point and every async continuation checks
+   * it, so a host that outlives its mount does nothing instead of writing into DOM
+   * that was torn down.
+   *
+   * React StrictMode makes this mandatory rather than defensive: its dev-only
+   * double-mount runs effect → cleanup → effect, so a `loadFile` awaiting its zip
+   * resolves *after* the host was destroyed and would otherwise render again,
+   * repopulating the media cache nothing will ever revoke.
+   */
+  private disposed = false;
 
   constructor(private mount: HTMLElement) {
     this.mount.style.position = 'relative';
@@ -202,6 +216,7 @@ export class RenderHost {
   }
 
   private emit(): void {
+    if (this.disposed) return;
     const s = this.getState();
     for (const fn of this.listeners) fn(s);
   }
@@ -209,7 +224,9 @@ export class RenderHost {
   // ---- loading / rendering ----------------------------------------------
 
   async loadFile(data: ArrayBuffer): Promise<void> {
+    if (this.disposed) return;
     const files = await parseZip(data);
+    if (this.disposed) return; // destroyed while the zip was being read
     this.presentation = buildPresentation(files);
     this.slideIndex = 0;
     this.selectedId = null;
@@ -245,7 +262,7 @@ export class RenderHost {
    * Whole-slide re-render is intentional (POC): callers invoke this after committing an edit.
    */
   render(): void {
-    if (!this.presentation) return;
+    if (this.disposed || !this.presentation) return;
     const slide = this.presentation.slides[this.slideIndex];
     if (!slide) return;
 
@@ -506,7 +523,22 @@ export class RenderHost {
     }
   }
 
+  /**
+   * Write pending model edits into the current slide's XML and return the part.
+   *
+   * The model is the editing surface and the XML only catches up here, so a host that
+   * saves has to call this rather than reading `slide.root` itself — the tree is stale
+   * until it runs.
+   */
+  serializeCurrentSlide(): SerializedSlidePart | null {
+    const slide = this.currentSlide;
+    if (!slide) return null;
+    return serializeSlide(slide);
+  }
+
   destroy(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.cancelTextEdit();
     this.stageWrap.removeEventListener('pointerdown', this.handlePointerDown);
     document.removeEventListener('keydown', this.handleKeyDown);
