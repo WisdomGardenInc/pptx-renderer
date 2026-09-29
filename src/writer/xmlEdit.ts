@@ -39,6 +39,36 @@ export const SP_PR_ORDER = [
 export const XFRM_ORDER = ['off', 'ext'];
 
 /** The mutually exclusive fill choice in `a:spPr` — setting one clears the rest. */
+/**
+ * Schema sequence of a:rPr children (CT_TextCharacterProperties). OOXML is a strict sequence,
+ * not an unordered set: a fill appended after <a:latin> makes PowerPoint repair the part and
+ * drop the styling, so authoring code must insert through this order.
+ */
+export const RPR_CHILD_ORDER = [
+  'ln',
+  'noFill',
+  'solidFill',
+  'gradFill',
+  'blipFill',
+  'pattFill',
+  'grpFill',
+  'effectLst',
+  'effectDag',
+  'highlight',
+  'uLnTx',
+  'uLn',
+  'uFillTx',
+  'uFill',
+  'latin',
+  'ea',
+  'cs',
+  'sym',
+  'hlinkClick',
+  'hlinkMouseOver',
+  'rtl',
+  'extLst',
+] as const;
+
 export const FILL_LOCAL_NAMES = [
   'noFill',
   'solidFill',

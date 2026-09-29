@@ -93,6 +93,34 @@ function adopt(doc: Document, el: Element): Element {
   return el.ownerDocument === doc ? el : (doc.importNode(el, true) as Element);
 }
 
+/**
+ * Take an element for insertion, cloning it when the model shares it elsewhere.
+ *
+ * Two runs pointing at one `a:rPr` look identical in the model and are not in the file:
+ * `appendChild` moves, so the second owner steals the element and the first paragraph
+ * silently loses its font size.
+ */
+function claim(doc: Document, el: Element, owned: Set<Element>): Element {
+  const fresh = owned.has(el) ? adopt(doc, el.cloneNode(true) as Element) : adopt(doc, el);
+  owned.add(el);
+  return fresh;
+}
+
+/** Put `el` into `parent` at its ordered slot, leaving it alone when it is already there. */
+function attach(
+  parent: Element,
+  el: Element | null,
+  order: readonly string[],
+  owned: Set<Element>,
+): void {
+  if (!el) return;
+  if (childByLocal(parent, el.localName) === el) {
+    owned.add(el);
+    return;
+  }
+  insertOrdered(parent, claim(parent.ownerDocument, el, owned), order);
+}
+
 /** Write the shape's current fill and line refs into `a:spPr`. */
 export function syncShapeStyle(shape: ShapeNodeData): void {
   const el = shape.source.element;
@@ -114,21 +142,26 @@ export function syncShapeStyle(shape: ShapeNodeData): void {
 }
 
 /** Build the element for one run, reusing its `a:rPr` and, for fields, the original element. */
-function buildRunElement(doc: Document, run: TextRun, original: Element | undefined): Element {
-  const rPr = run.properties?.element ? adopt(doc, run.properties.element) : null;
+function buildRunElement(
+  doc: Document,
+  run: TextRun,
+  original: Element | undefined,
+  owned: Set<Element>,
+): Element {
+  const rPr = run.properties?.element ?? null;
 
   // a:fld carries a generated GUID in @id that must survive the round trip, so the
   // original element is reused whenever the run still is a field.
   if (run.fieldType && original?.localName === 'fld') {
     const tEl = ensureChild(original, A, 'a:t', ['rPr', 'pPr', 't']);
     tEl.textContent = run.text;
-    if (rPr) insertOrdered(original, rPr, ['rPr', 'pPr', 't']);
+    attach(original, rPr, ['rPr', 'pPr', 't'], owned);
     return original;
   }
 
   if (run.text === '\n') {
     const br = createEl(doc, A, 'a:br');
-    if (rPr) br.appendChild(rPr);
+    attach(br, rPr, ['rPr'], owned);
     return br;
   }
 
@@ -137,7 +170,7 @@ function buildRunElement(doc: Document, run: TextRun, original: Element | undefi
   }
 
   const r = createEl(doc, A, 'a:r');
-  if (rPr) r.appendChild(rPr);
+  attach(r, rPr, ['rPr', 't'], owned);
   const t = createEl(doc, A, 'a:t');
   t.textContent = run.text;
   r.appendChild(t);
@@ -145,7 +178,7 @@ function buildRunElement(doc: Document, run: TextRun, original: Element | undefi
 }
 
 /** Rewrite one paragraph's run children from the model. */
-function syncParagraphRuns(pEl: Element, para: TextParagraph): void {
+function syncParagraphRuns(pEl: Element, para: TextParagraph, owned: Set<Element>): void {
   const doc = pEl.ownerDocument;
 
   const originals: Element[] = [];
@@ -156,7 +189,7 @@ function syncParagraphRuns(pEl: Element, para: TextParagraph): void {
   // Built before anything is removed: constructing a run moves its rPr (and, for a
   // field, the whole element) out of the old child, so the old children must still
   // be attached at this point.
-  const built = para.runs.map((run, i) => buildRunElement(doc, run, originals[i]));
+  const built = para.runs.map((run, i) => buildRunElement(doc, run, originals[i], owned));
 
   for (const old of originals) old.remove();
 
@@ -175,27 +208,56 @@ export function syncText(shape: ShapeNodeData): void {
   if (!txBody) return;
   const doc = el.ownerDocument;
 
-  const kept: Element[] = [];
-  for (const para of shape.textBody.paragraphs) {
-    // A paragraph parsed from this part still points at its a:pPr, whose parent is
-    // the a:p to reuse. One the editor created has no pPr, so it gets a fresh a:p.
+  const paras = shape.textBody.paragraphs;
+
+  const parsed: Element[] = [];
+  for (let i = 0; i < txBody.children.length; i++) {
+    if (txBody.children[i].localName === 'p') parsed.push(txBody.children[i]);
+  }
+
+  // Match model paragraphs to their a:p. A paragraph parsed from this part still points
+  // at its a:pPr, whose parent is the a:p to claim. The rest — ones the editor created,
+  // ones imported from another Document — take the free a:p elements in order, so a
+  // paragraph nobody rewrote keeps the markup it was parsed with.
+  const target: (Element | null)[] = paras.map(() => null);
+  const claimed: Set<Element> = new Set();
+  paras.forEach((para, i) => {
     const pPrEl = para.properties?.element;
-    const existing =
-      pPrEl && pPrEl.parentElement?.parentElement === txBody ? pPrEl.parentElement : null;
-    const pEl = existing ?? createEl(doc, A, 'a:p');
+    const p = pPrEl && pPrEl.parentElement?.parentElement === txBody ? pPrEl.parentElement : null;
+    if (p && !claimed.has(p)) {
+      target[i] = p;
+      claimed.add(p);
+    }
+  });
+  const free = parsed.filter((p) => !claimed.has(p));
+  let next = 0;
+  target.forEach((t, i) => {
+    if (t || next >= free.length) return;
+    target[i] = free[next];
+    claimed.add(free[next]);
+    next += 1;
+  });
+
+  const owned = new Set<Element>();
+  const kept: Element[] = [];
+  paras.forEach((para, i) => {
+    const pEl = target[i] ?? createEl(doc, A, 'a:p');
+    kept.push(pEl);
+
+    // The model owns paragraph properties once the text is rewritten, and a paragraph
+    // cloned by an edit carries a detached pPr: it has to be attached here or the
+    // alignment, bullets and spacing the edit preserved never reach the file.
+    attach(pEl, para.properties?.element ?? null, PARAGRAPH_ORDER, owned);
 
     if (para.level > 0) {
       const pPr = ensureChild(pEl, A, 'a:pPr', PARAGRAPH_ORDER);
       pPr.setAttribute('lvl', String(para.level));
     }
 
-    syncParagraphRuns(pEl, para);
+    syncParagraphRuns(pEl, para, owned);
 
-    if (para.endParaRPr?.element) {
-      insertOrdered(pEl, adopt(doc, para.endParaRPr.element), PARAGRAPH_ORDER);
-    }
-    kept.push(pEl);
-  }
+    attach(pEl, para.endParaRPr?.element ?? null, PARAGRAPH_ORDER, owned);
+  });
 
   // Drop paragraphs the edit removed, then reattach in model order. Appending an
   // already-attached element moves it, so this doubles as the reorder.

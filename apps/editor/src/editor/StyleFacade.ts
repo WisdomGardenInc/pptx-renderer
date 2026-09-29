@@ -1,4 +1,12 @@
-import { SafeXmlNode, type ShapeNodeData, type TextRun } from '@wisdomgarden/pptx-renderer';
+import {
+  applyPlainText,
+  insertOrdered,
+  readPlainText as readBodyText,
+  RPR_CHILD_ORDER,
+  SafeXmlNode,
+  type ShapeNodeData,
+  type TextRun,
+} from '@wisdomgarden/pptx-renderer';
 
 const DML = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 
@@ -48,7 +56,8 @@ function setSolidColor(parent: Element, hex: string, doc: Document): void {
   const clr = el(doc, 'srgbClr');
   clr.setAttribute('val', hex.replace('#', '').toUpperCase());
   sf.appendChild(clr);
-  parent.appendChild(sf);
+  // Fill precedes <a:latin> in the schema sequence; appending would make PowerPoint drop it.
+  insertOrdered(parent, sf, RPR_CHILD_ORDER);
 }
 
 /** All non-empty runs across the shape's paragraphs. */
@@ -88,7 +97,7 @@ export function readFillColor(shape: ShapeNodeData): string | null {
 }
 
 export function readPlainText(shape: ShapeNodeData): string {
-  return shape.textBody?.paragraphs.map((p) => p.runs.map((r) => r.text).join('')).join('\n') ?? '';
+  return readBodyText(shape);
 }
 
 // ---- write -----------------------------------------------------------------
@@ -111,7 +120,7 @@ export function applyTextStyle(shape: ShapeNodeData, patch: TextStylePatch): voi
       let latin = Array.from(rPr.children).find((c) => c.localName === 'latin');
       if (!latin) {
         latin = el(doc, 'latin');
-        rPr.appendChild(latin);
+        insertOrdered(rPr, latin, RPR_CHILD_ORDER);
       }
       latin.setAttribute('typeface', patch.fontFamily);
     }
@@ -131,18 +140,9 @@ export function applyFillColor(shape: ShapeNodeData, hex: string): void {
 }
 
 /**
- * Replace the shape's text with `text` (newlines → paragraphs), reusing the first run's style
- * so typography survives the edit. Operates on the typed model (renderer reads run.text).
+ * Replace the shape's text, keeping paragraph properties and the styling of runs the edit
+ * does not reach. Delegates to the library primitive so model and writer agree.
  */
 export function setPlainText(shape: ShapeNodeData, text: string): void {
-  if (!shape.textBody) {
-    shape.textBody = { paragraphs: [] };
-  }
-  const styleRun = runs(shape).find((r) => r.properties) ?? runs(shape)[0];
-  const styleProps = styleRun?.properties;
-  const level = shape.textBody.paragraphs[0]?.level ?? 0;
-  shape.textBody.paragraphs = text.split('\n').map((line) => ({
-    level,
-    runs: [{ text: line, properties: styleProps }],
-  }));
+  applyPlainText(shape, text);
 }
