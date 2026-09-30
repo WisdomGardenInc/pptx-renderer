@@ -223,10 +223,24 @@ export class RenderHost {
 
   // ---- loading / rendering ----------------------------------------------
 
-  async loadFile(data: ArrayBuffer): Promise<void> {
+  async loadFile(
+    data: ArrayBuffer,
+    overrides: ReadonlyArray<{ path: string; xml: string; relsXml?: string | null }> = [],
+  ): Promise<void> {
     if (this.disposed) return;
     const files = await parseZip(data);
     if (this.disposed) return; // destroyed while the zip was being read
+    for (const part of overrides) {
+      if (!files.slides.has(part.path)) {
+        throw new Error(`Slide part not found in baseline: ${part.path}`);
+      }
+      files.slides.set(part.path, part.xml);
+      if (part.relsXml != null) {
+        const directory = part.path.slice(0, part.path.lastIndexOf('/'));
+        const name = part.path.slice(part.path.lastIndexOf('/') + 1);
+        files.slideRels.set(`${directory}/_rels/${name}.rels`, part.relsXml);
+      }
+    }
     this.presentation = buildPresentation(files);
     this.slideIndex = 0;
     this.selectedId = null;
@@ -530,6 +544,10 @@ export class RenderHost {
    * saves has to call this rather than reading `slide.root` itself — the tree is stale
    * until it runs.
    */
+  commitPendingTextEdit(): void {
+    if (this.textEditor) this.commitTextEdit();
+  }
+
   serializeCurrentSlide(): SerializedSlidePart | null {
     const slide = this.currentSlide;
     if (!slide) return null;
