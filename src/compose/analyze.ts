@@ -12,7 +12,7 @@ import type { ShapeNodeData } from '../model/nodes/ShapeNode';
 import { readPlainText } from '../model/nodes/textEdit';
 import { buildPresentation, materializeSlideNodes } from '../model/Presentation';
 import type { SlideNode } from '../model/Slide';
-import { parseZip } from '../parser/ZipParser';
+import { parseZip, type ZipParseLimits } from '../parser/ZipParser';
 import { detectGroups, type DetectedGroup } from './groups';
 
 export interface PageElement {
@@ -72,11 +72,14 @@ function describe(node: SlideNode): PageElement {
   return element;
 }
 
-/** Analyse every slide of a PPTX package. */
-export async function analyzeDeck(bytes: Uint8Array): Promise<DeckAnalysis> {
+/** Analyse every slide of a PPTX package; `limits` guards against oversized packages. */
+export async function analyzeDeck(
+  bytes: Uint8Array,
+  limits: ZipParseLimits = {},
+): Promise<DeckAnalysis> {
   const copy = new Uint8Array(bytes.length);
   copy.set(bytes);
-  const presentation = buildPresentation(await parseZip(copy.buffer));
+  const presentation = buildPresentation(await parseZip(copy.buffer, limits));
   const page = { width: presentation.width, height: presentation.height };
   const pages = presentation.slides.map((slide, position) => {
     materializeSlideNodes(presentation, slide);

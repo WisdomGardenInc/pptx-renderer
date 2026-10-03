@@ -146,6 +146,14 @@ describe('analyzeDeck', () => {
     expect(first.groups).toHaveLength(1);
   });
 
+  it('refuses a package larger than the limits allow', async () => {
+    const template = await templateWithSlide(stepsSlide());
+
+    await expect(analyzeDeck(template, { maxTotalUncompressedBytes: 1024 })).rejects.toThrow(
+      /maxTotalUncompressedBytes/,
+    );
+  });
+
   it('describes groups that composeDeck can fill as they are', async () => {
     const template = await templateWithSlide(stepsSlide());
     const [page] = (await analyzeDeck(template)).pages;
