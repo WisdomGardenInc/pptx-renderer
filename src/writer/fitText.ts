@@ -190,28 +190,57 @@ function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): b
   return aStart < bEnd && bStart < aEnd;
 }
 
-function roomRight(shape: SlideNode, others: SlideNode[], limit: number, gutter: number): number {
-  const { x, y } = shape.position;
-  const right = x + shape.size.w;
-  let edge = limit;
-  for (const other of others) {
-    if (other.position.x < right - FIT_TOLERANCE) continue;
-    if (!overlaps(y, y + shape.size.h, other.position.y, other.position.y + other.size.h)) continue;
-    edge = Math.min(edge, other.position.x - gutter);
-  }
-  return edge - x;
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
 }
 
-function roomBelow(shape: SlideNode, others: SlideNode[], limit: number, gutter: number): number {
-  const { x, y } = shape.position;
-  const bottom = y + shape.size.h;
+function rectOf(node: SlideNode): Rect {
+  const { x, y } = node.position;
+  return { left: x, top: y, right: x + node.size.w, bottom: y + node.size.h };
+}
+
+function encloses(outer: Rect, inner: Rect): boolean {
+  return (
+    outer.left <= inner.left + FIT_TOLERANCE &&
+    outer.top <= inner.top + FIT_TOLERANCE &&
+    outer.right >= inner.right - FIT_TOLERANCE &&
+    outer.bottom >= inner.bottom - FIT_TOLERANCE
+  );
+}
+
+/**
+ * How far `shape` may reach along `axis` from its start. Three things stop it: the
+ * shape it sits inside (a card, a bubble) at that shape's far edge; a neighbour that
+ * starts past the box's own start, at the neighbour's near edge — which, for something
+ * the box already overlaps such as an illustration, means not growing at all; and
+ * `limit`. Things that begin before the box without enclosing it lie behind or beside
+ * it and do not count.
+ */
+function reach(
+  shape: SlideNode,
+  others: SlideNode[],
+  limit: number,
+  gutter: number,
+  axis: 'x' | 'y',
+): number {
+  const box = rectOf(shape);
+  const [start, end] = axis === 'x' ? [box.left, box.right] : [box.top, box.bottom];
   let edge = limit;
   for (const other of others) {
-    if (other.position.y < bottom - FIT_TOLERANCE) continue;
-    if (!overlaps(x, x + shape.size.w, other.position.x, other.position.x + other.size.w)) continue;
-    edge = Math.min(edge, other.position.y - gutter);
+    const rect = rectOf(other);
+    const across =
+      axis === 'x'
+        ? overlaps(box.top, box.bottom, rect.top, rect.bottom)
+        : overlaps(box.left, box.right, rect.left, rect.right);
+    if (!across) continue;
+    const [near, far] = axis === 'x' ? [rect.left, rect.right] : [rect.top, rect.bottom];
+    if (encloses(rect, box)) edge = Math.min(edge, far - gutter);
+    else if (near > start + FIT_TOLERANCE) edge = Math.min(edge, Math.max(end, near - gutter));
   }
-  return edge - y;
+  return edge - start;
 }
 
 function canGrow(shape: ShapeNodeData): boolean {
@@ -282,7 +311,7 @@ export function fitText(
   const insets = insetsOf(shape);
 
   const wanted = unwrappedWidth(shape, 1, fallback) + insets.left + insets.right;
-  const room = roomRight(shape, others, options.slideWidth * (1 - margin), gutter);
+  const room = reach(shape, others, options.slideWidth * (1 - margin), gutter, 'x');
   const widened = Math.max(shape.size.w, Math.min(room, wanted));
   if (widened > shape.size.w + FIT_TOLERANCE) {
     shape.size = { ...shape.size, w: widened };
@@ -290,7 +319,7 @@ export function fitText(
   }
 
   if (canGrow(shape)) {
-    const below = roomBelow(shape, others, options.slideHeight * (1 - margin), gutter);
+    const below = reach(shape, others, options.slideHeight * (1 - margin), gutter, 'y');
     const needed = heightFor(shape, 1, fallback);
     const grown = Math.max(shape.size.h, Math.min(below, needed));
     if (grown > shape.size.h + FIT_TOLERANCE) {

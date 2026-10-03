@@ -113,6 +113,33 @@ describe('fitText', () => {
     expect(shape.position.y + shape.size.h).toBeLessThanOrEqual(420);
   });
 
+  it('keeps a box inside the shape it sits on', () => {
+    const data = slide(
+      { id: 3, x: 40, y: 280, w: 360, h: 120, text: '' },
+      { id: 2, x: 64, y: 300, w: 200, h: 20, text: 'Card', sz: 1400, autofit: 'spAutoFit' },
+    );
+    const shape = shapeAt(data, 1);
+    applyPlainText(shape, 'A card heading that runs well past its sample');
+
+    fitText(data, shape, PAGE);
+
+    expect(shape.position.x + shape.size.w).toBeLessThanOrEqual(400 - 8);
+  });
+
+  it('does not widen over something the box already overlaps', () => {
+    const data = slide(
+      { id: 2, x: 64, y: 300, w: 300, h: 40, text: 'Title', sz: 2800 },
+      { id: 3, x: 300, y: 200, w: 500, h: 400, text: '' },
+    );
+    const shape = shapeAt(data, 0);
+    applyPlainText(shape, 'The numbers behind a good start');
+
+    const result = fitText(data, shape, PAGE);
+
+    expect(result.action).not.toBe('widened');
+    expect(shape.size.w).toBe(300);
+  });
+
   it('shrinks the font of a box that may not grow, and writes the new size', () => {
     const data = slide(
       { id: 2, x: 64, y: 300, w: 220, h: 70, text: '92%', sz: 4000, autofit: 'normAutofit' },
