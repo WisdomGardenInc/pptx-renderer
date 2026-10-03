@@ -2593,6 +2593,8 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
         textContainer.dataset.pptxEditable = 'true';
         textContainer.dataset.pptxTextRoot = node.id;
       }
+      // Marks the text body for `readTextFit`; carries no styling.
+      textContainer.dataset.pptxText = '';
       textContainer.style.position = 'absolute';
       if (node.textBoxBounds) {
         textContainer.style.left = `${node.textBoxBounds.x}px`;
@@ -2899,6 +2901,7 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
         const baseWhiteSpace = textContainer.style.whiteSpace;
         const baseOverflowY = textContainer.style.overflowY;
         const applyDynamicAutofit = () => {
+          delete textContainer.dataset.pptxFitScale;
           textContainer.style.transform = baseTransform;
           textContainer.style.transformOrigin = baseTransformOrigin;
           textContainer.style.width = baseWidth;
@@ -3073,6 +3076,7 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
               textContainer.style.transformOrigin = 'top left';
             }
             appendTransform(textContainer, `scale(${scale})`);
+            textContainer.dataset.pptxFitScale = String(scale);
             textContainer.style.width = expandCssLengthForScale(baseWidth, scale);
             textContainer.style.height = expandCssLengthForScale(baseHeight, scale);
           } else if (

@@ -87,6 +87,31 @@ export { applyPlainText, paragraphPlainText, readPlainText } from './model/nodes
 // Incremental — untouched elements (charts, SmartArt, effects) pass through as-is.
 // Assembling a package from a baseline plus serialized parts is left to the caller.
 export { serializeSlide, syncSlide } from './writer/SlideWriter';
+
+// Slide-level package operations: copy, drop and reorder slides within a package.
+export { arrangeSlides } from './writer/deckOps';
+
+// Copy shapes or groups on a slide; every id inside the copy is renumbered.
+export { duplicateNodes } from './writer/duplicateNodes';
+export type { NodeOffset } from './writer/duplicateNodes';
+
+// Fit replacement text before writing (estimate), and read back how it rendered (measured).
+export { fitText } from './writer/fitText';
+export type { TextFitAction, TextFitOptions, TextFitResult } from './writer/fitText';
+export { readTextFit } from './renderer/textFit';
+export type { TextFitReport } from './renderer/textFit';
+
+// Compose a deck from template slides and per-page edits (text, repeated groups).
+export { composeDeck } from './compose/composeDeck';
+export type { ComposeOptions } from './compose/composeDeck';
+export type {
+  ComposedText,
+  ComposeOp,
+  ComposeProblem,
+  ComposeResult,
+  GroupSpec,
+  PagePlan,
+} from './compose/types';
 export { RPR_CHILD_ORDER, insertOrdered } from './writer/xmlEdit';
 export type { SerializedSlidePart } from './writer/SlideWriter';
 

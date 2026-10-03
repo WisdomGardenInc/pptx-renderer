@@ -29,7 +29,7 @@ const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
  * file with two declarations — which is not merely untidy, it is fatally malformed, and
  * a slide part that no parser will read renders as an empty slide rather than an error.
  */
-function serializeDocument(doc: Document): string {
+export function serializeDocument(doc: Document): string {
   const serialized = new XMLSerializer().serializeToString(doc);
   return serialized.startsWith('<?xml') ? serialized : XML_DECLARATION + serialized;
 }
