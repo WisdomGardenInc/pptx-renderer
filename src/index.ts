@@ -112,6 +112,12 @@ export type {
   GroupSpec,
   PagePlan,
 } from './compose/types';
+
+// Describe a template deck page by page: elements and repeated groups, by the ids composeDeck uses.
+export { analyzeDeck } from './compose/analyze';
+export type { DeckAnalysis, PageAnalysis, PageElement } from './compose/analyze';
+export { detectGroups } from './compose/groups';
+export type { DetectedGroup } from './compose/groups';
 export { RPR_CHILD_ORDER, insertOrdered } from './writer/xmlEdit';
 export type { SerializedSlidePart } from './writer/SlideWriter';
 
