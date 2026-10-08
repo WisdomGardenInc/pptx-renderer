@@ -6,6 +6,12 @@ import {
 import type { SlideNode } from '../model/Slide';
 import type { BaseNodeData, NodeType, Position, Size } from '../model/nodes/BaseNode';
 import type { GroupNodeData } from '../model/nodes/GroupNode';
+import {
+  groupChildTransform,
+  IDENTITY_TRANSFORM,
+  transformedBounds,
+  type CoordinateTransform,
+} from '../model/groupTransform';
 import type { ShapeNodeData, TextBody } from '../model/nodes/ShapeNode';
 import type { TableCell, TableNodeData } from '../model/nodes/TableNode';
 import { isPlaceholderNode, parseRenderableChild } from '../model/RenderableChild';
@@ -56,13 +62,6 @@ const DEFAULT_INDEX_OPTIONS: Required<TextIndexOptions> = {
   includeGroups: true,
 };
 
-interface CoordinateTransform {
-  offsetX: number;
-  offsetY: number;
-  scaleX: number;
-  scaleY: number;
-}
-
 interface TextChildParseContext {
   rels: Map<string, RelEntry>;
   partPath?: string;
@@ -70,13 +69,6 @@ interface TextChildParseContext {
   layout?: LayoutData;
   master?: MasterData;
 }
-
-const IDENTITY_TRANSFORM: CoordinateTransform = {
-  offsetX: 0,
-  offsetY: 0,
-  scaleX: 1,
-  scaleY: 1,
-};
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -90,12 +82,7 @@ const getCellText = (cell: TableCell): string => getTextBodyText(cell.textBody);
 const toBounds = (
   node: BaseNodeData,
   transform: CoordinateTransform = IDENTITY_TRANSFORM,
-): TextBounds => ({
-  x: transform.offsetX + node.position.x * transform.scaleX,
-  y: transform.offsetY + node.position.y * transform.scaleY,
-  w: node.size.w * transform.scaleX,
-  h: node.size.h * transform.scaleY,
-});
+): TextBounds => transformedBounds(node, transform);
 
 const shouldAddText = (text: string): boolean => text.trim().length > 0;
 
@@ -104,11 +91,6 @@ const isAsciiWordChar = (char: string | undefined): boolean =>
 
 const isWholeWordMatch = (text: string, start: number, end: number): boolean =>
   !isAsciiWordChar(text[start - 1]) && !isAsciiWordChar(text[end]);
-
-const rotationSwapsAxes = (rotation: number): boolean => {
-  const normalized = ((rotation % 360) + 360) % 360;
-  return Math.abs(normalized - 90) < 0.0001 || Math.abs(normalized - 270) < 0.0001;
-};
 
 const createSnippet = (text: string, start: number, end: number, radius: number): string => {
   const from = Math.max(0, start - radius);
@@ -134,60 +116,7 @@ const parseGroupChild = (
   return child;
 };
 
-const getGroupChildTransform = (
-  group: GroupNodeData,
-  child: BaseNodeData,
-  parentTransform: CoordinateTransform,
-): CoordinateTransform => {
-  if (group.childExtent.w <= 0 && group.childExtent.h <= 0) {
-    return {
-      offsetX: parentTransform.offsetX + group.position.x * parentTransform.scaleX,
-      offsetY: parentTransform.offsetY + group.position.y * parentTransform.scaleY,
-      scaleX: parentTransform.scaleX,
-      scaleY: parentTransform.scaleY,
-    };
-  }
-
-  const scaleX = group.childExtent.w > 0 ? group.size.w / group.childExtent.w : 1;
-  const scaleY = group.childExtent.h > 0 ? group.size.h / group.childExtent.h : 1;
-  if (rotationSwapsAxes(child.rotation)) {
-    const rotatedBBoxX = child.position.x + (child.size.w - child.size.h) / 2;
-    const rotatedBBoxY = child.position.y + (child.size.h - child.size.w) / 2;
-    const nextSize = {
-      w: child.size.w * scaleY,
-      h: child.size.h * scaleX,
-    };
-    const nextPosition = {
-      x: (rotatedBBoxX - group.childOffset.x) * scaleX - (nextSize.w - nextSize.h) / 2,
-      y: (rotatedBBoxY - group.childOffset.y) * scaleY - (nextSize.h - nextSize.w) / 2,
-    };
-    const childScaleX = parentTransform.scaleX * scaleY;
-    const childScaleY = parentTransform.scaleY * scaleX;
-    return {
-      offsetX:
-        parentTransform.offsetX +
-        (group.position.x + nextPosition.x) * parentTransform.scaleX -
-        child.position.x * childScaleX,
-      offsetY:
-        parentTransform.offsetY +
-        (group.position.y + nextPosition.y) * parentTransform.scaleY -
-        child.position.y * childScaleY,
-      scaleX: childScaleX,
-      scaleY: childScaleY,
-    };
-  }
-
-  return {
-    offsetX:
-      parentTransform.offsetX +
-      (group.position.x - group.childOffset.x * scaleX) * parentTransform.scaleX,
-    offsetY:
-      parentTransform.offsetY +
-      (group.position.y - group.childOffset.y * scaleY) * parentTransform.scaleY,
-    scaleX: parentTransform.scaleX * scaleX,
-    scaleY: parentTransform.scaleY * scaleY,
-  };
-};
+const getGroupChildTransform = groupChildTransform;
 
 const addShapeText = (
   entries: TextIndexEntry[],

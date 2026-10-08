@@ -65,12 +65,14 @@ const PX_PER_POINT = 96 / 72;
 const CENTI = 100;
 const LINE_HEIGHT = 1.2;
 const LATIN_EM = 0.55;
+const UPPER_EM = 0.68;
 const SPACE_EM = 0.28;
 const WIDE_EM = 1;
 const BOLD_FACTOR = 1.06;
 const FIT_TOLERANCE = 1;
 const SHRINK_STEPS = 12;
-const WIDE_CHAR = /[ᄀ-ᇿ⺀-鿿가-힯豈-﫿＀-￯]/;
+const WIDE_CHAR = /[ᄀ-ᇿ⺀-鿿가-힯豈-﫿＀-￯]/;
+const UPPER_CHAR = /[A-Z]/;
 const SIZE_STEP = 50;
 
 function bodyAttr(shape: ShapeNodeData, name: string): string | undefined {
@@ -113,8 +115,13 @@ function lineSpacing(para: TextParagraph): number {
 }
 
 function charWidth(ch: string, sizePx: number, bold: boolean): number {
-  const em = ch === ' ' ? SPACE_EM : WIDE_CHAR.test(ch) ? WIDE_EM : LATIN_EM;
+  const em = ch === ' ' ? SPACE_EM : WIDE_CHAR.test(ch) ? WIDE_EM : upperEm(ch);
   return em * sizePx * (bold ? BOLD_FACTOR : 1);
+}
+
+/** Capitals run wider than the lower-case average an estimate would otherwise use. */
+function upperEm(ch: string): number {
+  return UPPER_CHAR.test(ch) ? UPPER_EM : LATIN_EM;
 }
 
 /** Lay one paragraph out greedily at `width`; returns line count and widest line. */
@@ -254,7 +261,7 @@ function heightFor(shape: ShapeNodeData, scale: number, fallback: number): numbe
 }
 
 function scaledSize(size: number, scale: number): number {
-  return Math.max(SIZE_STEP, Math.round((size * scale) / SIZE_STEP) * SIZE_STEP);
+  return Math.max(SIZE_STEP, Math.floor((size * scale) / SIZE_STEP) * SIZE_STEP);
 }
 
 function scaleRunSizes(shape: ShapeNodeData, scale: number, fallback: number): void {
@@ -294,6 +301,22 @@ function fittingScale(shape: ShapeNodeData, floor: number, fallback: number): nu
 }
 
 /**
+ * Shrink `shape`'s text to fit the box it already has. Used where the box cannot move —
+ * inside a group, whose geometry the plan is not allowed to disturb.
+ */
+export function fitTextInPlace(shape: ShapeNodeData, options: TextFitOptions): TextFitResult {
+  const fallback = options.defaultFontSize ?? 18;
+  if (!shape.textBody || fits(shape, 1, fallback)) return { action: 'fits', scale: 1 };
+  return shrinkToFit(shape, options.minScale ?? 0.7, fallback);
+}
+
+function shrinkToFit(shape: ShapeNodeData, floor: number, fallback: number): TextFitResult {
+  const scale = fittingScale(shape, floor, fallback);
+  scaleRunSizes(shape, scale, fallback);
+  return { action: fits(shape, 1, fallback) ? 'shrunk' : 'overflows', scale };
+}
+
+/**
  * Make `shape`'s text fit its box on `slide`, changing the box size and, as a last
  * resort, the font size in the model. The writer persists both on the next save.
  */
@@ -329,7 +352,5 @@ export function fitText(
   }
 
   const floor = options.minScale ?? 0.7;
-  const scale = fittingScale(shape, floor, fallback);
-  scaleRunSizes(shape, scale, fallback);
-  return { action: fits(shape, 1, fallback) ? 'shrunk' : 'overflows', scale };
+  return shrinkToFit(shape, floor, fallback);
 }
