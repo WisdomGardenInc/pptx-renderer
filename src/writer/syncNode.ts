@@ -13,6 +13,7 @@
  */
 
 import type { BaseNodeData } from '../model/nodes/BaseNode';
+import type { PicNodeData } from '../model/nodes/PicNode';
 import type { ShapeNodeData, TextBody, TextParagraph, TextRun } from '../model/nodes/ShapeNode';
 import type { SlideNode } from '../model/Slide';
 import { pxToEmu, degToAngle } from '../parser/units';
@@ -279,6 +280,46 @@ function findCNvPr(el: Element): Element | null {
   return childByLocal(el, 'cNvPr');
 }
 
+/** Remove the vector alternatives a blip may carry, which viewers prefer over its raster one. */
+function dropVectorBlips(blip: Element): void {
+  const extLst = childByLocal(blip, 'extLst');
+  if (!extLst) return;
+  for (const ext of Array.from(extLst.children)) {
+    if (childByLocal(ext, 'svgBlip')) ext.remove();
+  }
+}
+
+/**
+ * Point a picture at a new image relationship, reporting whether it could be done.
+ *
+ * The artwork it used to show goes with it. A linked blip keeps its target outside the
+ * package, and a vector blip in `a:blip/extLst` is preferred over the raster one — either
+ * left behind keeps showing the template's own picture. The crop goes too: it was cut for
+ * the image being replaced, and the replacement arrives already sized for the slot.
+ *
+ * Unlike the other sync functions this one is driven by an edit the caller holds rather than
+ * by the model, so it is called for the picture being replaced and not from `syncNode` —
+ * nothing else on the slide should be rewritten just because a picture elsewhere changed.
+ */
+export function setPictureImage(pic: PicNodeData, relId: string): boolean {
+  const el = pic.source.element;
+  if (!el) return false;
+  const blipFill = childByLocal(el, 'blipFill');
+  const blip = blipFill ? childByLocal(blipFill, 'blip') : null;
+  if (!blipFill || !blip) return false;
+
+  blip.setAttribute('r:embed', relId);
+  blip.removeAttribute('embed');
+  blip.removeAttribute('link');
+  blip.removeAttribute('r:link');
+  dropVectorBlips(blip);
+  removeChildrenByLocal(blipFill, ['srcRect']);
+
+  pic.blipEmbed = relId;
+  pic.blipLink = undefined;
+  pic.crop = undefined;
+  return true;
+}
 /**
  * Write the node's id and name into `p:cNvPr`.
  *

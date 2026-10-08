@@ -67,26 +67,26 @@ function parse(xml: string): Document {
   return new DOMParser().parseFromString(xml, 'application/xml');
 }
 
-async function readXml(zip: JSZip, path: string): Promise<Document | null> {
+export async function readXml(zip: JSZip, path: string): Promise<Document | null> {
   const file = zip.file(path);
   return file ? parse(await file.async('string')) : null;
 }
 
-function writeXml(zip: JSZip, path: string, doc: Document): void {
+export function writeXml(zip: JSZip, path: string, doc: Document): void {
   zip.file(path, serializeDocument(doc), { createFolders: false });
 }
 
-function directoryOf(path: string): string {
+export function directoryOf(path: string): string {
   const slash = path.lastIndexOf('/');
   return slash < 0 ? '' : path.slice(0, slash);
 }
 
-function relsPathOf(path: string): string {
+export function relsPathOf(path: string): string {
   const slash = path.lastIndexOf('/');
   return `${path.slice(0, slash + 1)}_rels/${path.slice(slash + 1)}.rels`;
 }
 
-function relationships(doc: Document): Relationship[] {
+export function relationships(doc: Document): Relationship[] {
   return Array.from(doc.getElementsByTagNameNS(PKG_REL_NS, 'Relationship')).map((element) => ({
     element,
     id: element.getAttribute('Id') ?? '',
@@ -101,7 +101,7 @@ function hasSuffix(type: string, suffixes: readonly string[]): boolean {
 }
 
 /** Next free path beside `path`, numbered after every sibling that shares its stem. */
-function freshPath(zip: JSZip, path: string): string {
+export function freshPath(zip: JSZip, path: string): string {
   const dir = directoryOf(path);
   const name = path.slice(dir.length + 1);
   const match = /^(.*?)(\d*)(\.[^.]+)$/.exec(name);
@@ -175,7 +175,7 @@ async function copyPart(
 }
 
 /** Relative target from `fromDir` to `path`, in the `../dir/name` form OOXML uses. */
-function relativeTarget(fromDir: string, path: string): string {
+export function relativeTarget(fromDir: string, path: string): string {
   const from = fromDir.split('/').filter(Boolean);
   const to = path.split('/').filter(Boolean);
   let shared = 0;

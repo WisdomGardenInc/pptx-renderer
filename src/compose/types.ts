@@ -18,6 +18,8 @@ export type ComposeOp =
   | { op: 'set_text'; element: string; text: string }
   /** Empty an element's text. */
   | { op: 'clear'; element: string }
+  /** Show these image bytes in a picture, in place of the artwork it had. */
+  | { op: 'set_image'; element: string; bytes: Uint8Array }
   /** Fill a group with one entry per item, adding or removing members to match. */
   | { op: 'set_items'; group: GroupSpec; items: Array<Record<string, string>> };
 

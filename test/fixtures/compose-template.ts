@@ -65,6 +65,84 @@ export function stepsSlide(): string {
   );
 }
 
+export interface PictureFixture {
+  id: number;
+  name: string;
+  box: [number, number, number, number];
+  /** Relationship the raster blip embeds; `rId3` and `rId4` resolve in the sample deck. */
+  embed?: string;
+  /** Relationship of a blip that points at its image (`r:link`) instead of embedding it. */
+  link?: string;
+  /** `a:srcRect` attributes, when the template crops the image to its frame. */
+  crop?: string;
+  /** Relationship of an `asvg:svgBlip` alternative, which viewers prefer over the raster one. */
+  svgEmbed?: string;
+  /**
+   * The `EG_Media` child making the picture the poster of a clip — `videoFile`,
+   * `quickTimeFile`, `audioFile`, `wavAudioFile` or `audioCd`.
+   */
+  poster?: { tag: string; rel: string };
+}
+
+const SVG_BLIP_URI = '{96DAC541-7B7A-43D3-8B79-37D633B846F1}';
+const SVG_BLIP_NS = 'http://schemas.microsoft.com/office/drawing/2016/SVG/main';
+
+export function picture({
+  id,
+  name,
+  box,
+  embed,
+  link,
+  crop,
+  svgEmbed,
+  poster,
+}: PictureFixture): string {
+  const extLst = svgEmbed
+    ? `<a:extLst><a:ext uri="${SVG_BLIP_URI}">` +
+      `<asvg:svgBlip xmlns:asvg="${SVG_BLIP_NS}" r:embed="${svgEmbed}"/>` +
+      '</a:ext></a:extLst>'
+    : '';
+  const srcRect = crop ? `<a:srcRect ${crop}/>` : '';
+  const raster = embed ? ` r:embed="${embed}"` : '';
+  const linkAttr = link ? ` r:link="${link}"` : '';
+  const media = poster ? `<a:${poster.tag} r:link="${poster.rel}"/>` : '';
+  return (
+    `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${name}"/><p:cNvPicPr/><p:nvPr>${media}</p:nvPr></p:nvPicPr>` +
+    `<p:blipFill><a:blip${raster}${linkAttr}>${extLst}</a:blip>${srcRect}` +
+    '<a:stretch><a:fillRect/></a:stretch></p:blipFill>' +
+    `<p:spPr>${xfrm(...box)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`
+  );
+}
+
+/** A group holding `child`, occupying `box` on the page. */
+export function groupBox(
+  id: number,
+  name: string,
+  box: [number, number, number, number],
+  child: string,
+): string {
+  const at = (value: number) => Math.round(value * EMU);
+  return (
+    `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+    `<p:grpSpPr><a:xfrm><a:off x="${at(box[0])}" y="${at(box[1])}"/>` +
+    `<a:ext cx="${at(box[2])}" cy="${at(box[3])}"/>` +
+    `<a:chOff x="${at(box[0])}" y="${at(box[1])}"/>` +
+    `<a:chExt cx="${at(box[2])}" cy="${at(box[3])}"/></a:xfrm></p:grpSpPr>` +
+    child +
+    '</p:grpSp>'
+  );
+}
+
+/** A slide holding a title and the picture `pic` describes, and nothing else. */
+export function pictureSlide(pic: string): string {
+  return slideXml(textShape(2, 'Title', [64, 64, 800, 60], 'A slide with artwork', 2400) + pic);
+}
+
+/** The sample deck with `pic` as the only content of its first slide. */
+export async function templateWithPicture(pic: string): Promise<Uint8Array> {
+  return templateWithSlide(pictureSlide(pic));
+}
+
 export const GROUP: GroupSpec = {
   direction: 'x',
   track: ['3'],

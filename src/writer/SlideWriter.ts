@@ -41,6 +41,14 @@ export interface SerializedSlidePart {
   xml: string;
 }
 
+/**
+ * The part a slide lives in. Everything that addresses the slide's own package parts — its
+ * relationships above all — has to name the same path the part is written to.
+ */
+export function slidePartPath(slide: SlideData): string {
+  return slide.slidePath || `ppt/slides/slide${slide.index + 1}.xml`;
+}
+
 /** Locate `p:cSld > p:spTree` under a slide root. */
 function findShapeTree(root: SafeXmlNode): Element | null {
   return root.child('cSld').child('spTree').element;
@@ -128,7 +136,7 @@ export function serializeSlide(slide: SlideData): SerializedSlidePart {
   const doc = slide.root.element.ownerDocument;
 
   return {
-    path: slide.slidePath || `ppt/slides/slide${slide.index + 1}.xml`,
+    path: slidePartPath(slide),
     xml: serializeDocument(doc),
   };
 }
