@@ -524,6 +524,41 @@ await handle.ready;
 handle.dispose();
 ```
 
+#### Editing projected elements
+
+The main package exports `readSlideElements`, `editSlideElements`, and
+`refreshSlideParts` for editors that keep their own application state. Editable
+values use native 96-DPI pixels for geometry, padding, and paragraph margins;
+font sizes and point spacing use points. Hosts adapt their canvas coordinates
+and filter product overlays before calling the writer.
+
+```ts
+const previous = readSlideElements(presentation, presentation.slides[0]);
+const edited = structuredClone(previous);
+edited[0].x += 20;
+const part = editSlideElements(
+  presentation.slides[0],
+  edited,
+  previous,
+  relationshipsXml,
+  embeddedImageParts,
+);
+files.slides.set(presentation.slides[0].slidePath, part.xml);
+files.slideRels.set(relationshipsPart(presentation.slides[0].slidePath), part.relsXml ?? '');
+presentation = refreshSlideParts(presentation, files, [0]);
+```
+
+`embeddedImageParts` maps host element IDs to already embedded media part paths.
+Image acquisition, storage, revisions, and assembling the complete package remain
+host responsibilities. Existing opaque chart, table, and group objects carry
+`sourceXml`, `sourcePart`, and relationships so unmodified content survives edits
+and copying. Structural page changes still require `buildPresentation`.
+
+For previews that must wait for paintable images, pass `{ waitForImages: true }`
+to `renderSlide`, mount `handle.element`, and await `handle.ready`. This includes
+HTML, SVG, and CSS background image decoding; `handle.dispose()` cancels pending
+waits. The option defaults to false to preserve existing readiness behavior.
+
 #### Model Types
 
 All model types are exported for consumers building custom tooling:

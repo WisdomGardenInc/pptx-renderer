@@ -1,3 +1,4 @@
+import { waitForSlideImages } from './slideImages';
 /**
  * Slide renderer — orchestrates rendering of a complete slide with all its nodes.
  */
@@ -32,6 +33,9 @@ import type { FontFaceConfig } from './ConfiguredFontLoader';
 // ---------------------------------------------------------------------------
 
 export interface SlideRendererOptions {
+  /** Include HTML/SVG/CSS image decoding in ready. Hosts must mount the slide;
+   * dispose() cancels pending image waits. Off by default for compatibility. */
+  waitForImages?: boolean;
   /** Called when a single node fails to render. */
   onNodeError?: (nodeId: string, error: unknown) => void;
   /**
@@ -408,7 +412,9 @@ export function renderSlide(
   // Build SlideHandle
   let disposed = false;
   const mediaUrlCache = ctx.mediaUrlCache;
-  const ready = Promise.allSettled(asyncTasks).then(() => undefined);
+  const ready = Promise.allSettled(asyncTasks).then(async () => {
+    if (options?.waitForImages) await waitForSlideImages(container, abortController.signal);
+  });
 
   const dispose = (): void => {
     if (disposed) return;

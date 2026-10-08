@@ -89,3 +89,16 @@ export { applyPlainText, paragraphPlainText, readPlainText } from './model/nodes
 export { serializeSlide, syncSlide } from './writer/SlideWriter';
 export { RPR_CHILD_ORDER, insertOrdered } from './writer/xmlEdit';
 export type { SerializedSlidePart } from './writer/SlideWriter';
+
+// Framework-free editing: hosts adapt their own state to pixel/point values.
+export { editSlideElements } from './writer/ElementWriter';
+export { readSlideElements, imagePartPaths } from './editor/readSlideElements';
+export { relationshipsPart, resolvePartPath, sourceElement } from './editor/parts';
+export type {
+  EditableElement,
+  EditableParagraph,
+  EditableTextRun,
+  EditableBullet,
+} from './editor/EditableElement';
+export { refreshSlideParts } from './editor/refreshSlideParts';
+export { waitForSlideImages } from './renderer/slideImages';
