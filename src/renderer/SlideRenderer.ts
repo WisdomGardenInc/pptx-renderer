@@ -33,6 +33,10 @@ import type { FontFaceConfig } from './ConfiguredFontLoader';
 // ---------------------------------------------------------------------------
 
 export interface SlideRendererOptions {
+  /** Emit text editing markers. Normally enabled by renderEditableText(). */
+  editableText?: boolean;
+  /** @internal Stable input root owned by renderEditableText(). */
+  editableTextRoot?: HTMLDivElement;
   /** Include HTML/SVG/CSS image decoding in ready. Hosts must mount the slide;
    * dispose() cancels pending image waits. Off by default for compatibility. */
   waitForImages?: boolean;
@@ -306,6 +310,8 @@ export function renderSlide(
     abortController.signal,
   );
   ctx.asyncTasks = asyncTasks;
+  ctx.editableText = options?.editableText === true;
+  ctx.editableTextRoot = options?.editableTextRoot;
   ctx.embeddedFontsEnabled = options?.embeddedFonts === true;
   if (options?.onNavigate) {
     ctx.onNavigate = options.onNavigate;

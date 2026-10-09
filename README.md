@@ -554,6 +554,39 @@ host responsibilities. Existing opaque chart, table, and group objects carry
 `sourceXml`, `sourcePart`, and relationships so unmodified content survives edits
 and copying. Structural page changes still require `buildPresentation`.
 
+`renderEditableText` renders a text box or text-bearing shape as a transparent
+input overlay using the preview's native text layout. It does not mutate the
+slide XML, render the slide background, or hide other slide objects. Geometry
+stays in native pixels; the host applies its canvas scale and hides the matching
+preview object while the overlay is active.
+
+```ts
+const slide = presentation.slides[0];
+let draft = readSlideElements(presentation, slide).find((item) => item.type === 'text')!;
+const input = renderEditableText(presentation, slide, draft);
+host.append(input.element);
+await input.ready;
+
+input.textElement.addEventListener('input', () => {
+  draft = { ...draft, paragraphs: extractEditableText(input.textElement, draft.paragraphs ?? []) };
+});
+
+// Formatting/model updates retain the input root, listeners, focus and selection.
+input.update(draft);
+// To use newly loaded parts: input.update(draft, { presentation, slide });
+input.dispose();
+input.element.remove();
+```
+
+The main package also exports `mapEditableTextPositionToRun`,
+`mapEditableTextPositionToParagraph`, and `createEditableTextRange` for selection
+mapping. `extractEditableText` preserves the host's paragraph/run metadata and
+understands bullets, links, compact text groups, fixed-spacing line blocks and
+browser-inserted text. Semantic DOM markers are emitted during editing render;
+ordinary previews keep their existing markup. SVG-warped WordArt has no HTML
+input container and is not supported by this input API. Persistence, undo,
+keyboard policy, and application-specific style controls belong to the host.
+
 For previews that must wait for paintable images, pass `{ waitForImages: true }`
 to `renderSlide`, mount `handle.element`, and await `handle.ready`. This includes
 HTML, SVG, and CSS background image decoding; `handle.dispose()` cancels pending

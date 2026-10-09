@@ -917,6 +917,7 @@ export function renderTextBody(
 
   for (const [paragraphIndex, paragraph] of textBody.paragraphs.entries()) {
     const paraDiv = document.createElement('div');
+    if (ctx.editableText) paraDiv.dataset.pptxParagraph = String(paragraphIndex);
     paraDiv.style.width = '100%';
     paraDiv.style.minWidth = '0px';
     paraDiv.style.maxWidth = '100%';
@@ -1081,6 +1082,10 @@ export function renderTextBody(
 
     if (bulletPrefix) {
       const bulletSpan = document.createElement('span');
+      if (ctx.editableText) {
+        bulletSpan.dataset.bullet = 'true';
+        bulletSpan.setAttribute('contenteditable', 'false');
+      }
       bulletSpan.textContent = bulletPrefix + ' ';
       const marginLeft = merged.marginLeft;
       const textIndent = merged.textIndent;
@@ -1183,14 +1188,19 @@ export function renderTextBody(
 
     for (const [runIndex, run] of paragraph.runs.entries()) {
       if (run.text === '\n') {
+        const separator = document.createElement('br');
+        if (ctx.editableText) separator.dataset.pptxRun = String(runIndex);
         if (useLineWrappers) {
-          // Close current line div and start a new one
+          if (ctx.editableText) {
+            separator.style.display = 'none';
+            paraDiv.appendChild(separator);
+          }
           currentLineDiv = document.createElement('div');
           currentLineDiv.style.height = effectiveLineHeight!;
           currentLineDiv.style.overflow = 'visible';
           paraDiv.appendChild(currentLineDiv);
         } else {
-          paraDiv.appendChild(document.createElement('br'));
+          paraDiv.appendChild(separator);
         }
         continue;
       }
@@ -1252,6 +1262,8 @@ export function renderTextBody(
       } else {
         element = document.createElement('span');
       }
+
+      if (ctx.editableText) element.dataset.pptxRun = String(runIndex);
 
       // Preserve consecutive spaces by alternating with &nbsp; so they survive
       // HTML whitespace collapse without being stretched by text-align:justify.

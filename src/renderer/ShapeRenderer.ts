@@ -2570,9 +2570,13 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
     }
   }
 
-  // ---- Render text overlay (only when there is visible text; skip for decorative shapes with empty txBody) ----
+  // Previews skip empty decorative text, but editing needs a container for the caret/input.
   const textBody = node.textBody ? resolveTextFields(node.textBody, ctx) : undefined;
-  if (textBody && textBody.paragraphs.length > 0 && hasVisibleText(textBody)) {
+  if (
+    textBody &&
+    textBody.paragraphs.length > 0 &&
+    (ctx.editableText || hasVisibleText(textBody))
+  ) {
     const warpedText = renderWarpedTextBody(
       textBody === node.textBody ? node : { ...node, textBody },
       ctx,
@@ -2580,7 +2584,15 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
     if (warpedText) {
       wrapper.appendChild(warpedText);
     } else {
-      const textContainer = document.createElement('div');
+      const textContainer = ctx.editableTextRoot ?? document.createElement('div');
+      if (ctx.editableTextRoot) {
+        textContainer.style.cssText = '';
+        textContainer.replaceChildren();
+      }
+      if (ctx.editableText) {
+        textContainer.dataset.pptxEditable = 'true';
+        textContainer.dataset.pptxTextRoot = node.id;
+      }
       textContainer.style.position = 'absolute';
       if (node.textBoxBounds) {
         textContainer.style.left = `${node.textBoxBounds.x}px`;
