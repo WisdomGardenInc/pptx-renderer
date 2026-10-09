@@ -70,6 +70,40 @@ describe('framework-free element editing', () => {
     expect(elements[0].paragraphs?.[0].marL).toBe(10);
   });
 
+  it('preserves styled empty runs through XML save and reload', () => {
+    const { files, presentation, slide } = fixture();
+    const previous = readSlideElements(presentation, slide);
+    const next = structuredClone(previous);
+    const styled = {
+      ...next[0].paragraphs![0].runs[0],
+      text: '',
+      color: '#FF0000',
+      fontSize: 32,
+      fontName: 'Georgia',
+      bold: true,
+      italic: true,
+      underline: true,
+    };
+    next[0].paragraphs!.push({ ...next[0].paragraphs![0], runs: [styled] });
+    const result = editSlideElements(slide, next, previous, null, new Map());
+    const paragraph = parseXml(result.xml)
+      .child('cSld')
+      .child('spTree')
+      .child('sp')
+      .child('txBody')
+      .children('p')[1];
+    expect(paragraph.child('r').child('rPr').attr('sz')).toBe('3200');
+    expect(paragraph.child('r').child('rPr').child('solidFill').child('srgbClr').attr('val')).toBe(
+      'FF0000',
+    );
+    expect(paragraph.child('r').child('t').text()).toBe('');
+    files.slides.set(slide.slidePath, result.xml);
+    const refreshed = refreshSlideParts(presentation, files, [0]);
+    expect(readSlideElements(refreshed, refreshed.slides[0])[0].paragraphs![1].runs).toEqual([
+      styled,
+    ]);
+  });
+
   it('adds embedded pictures with relationships and opacity', () => {
     const { presentation, slide } = fixture();
     const before = readSlideElements(presentation, slide);

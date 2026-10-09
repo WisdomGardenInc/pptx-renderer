@@ -10,6 +10,7 @@ import { editSlideElements } from '../writer/ElementWriter';
 import type { EditableElement } from './EditableElement';
 import { sourceElement } from './parts';
 import { readSlideElements } from './readSlideElements';
+import { measureEditableTextSize } from './measureEditableTextSize';
 import {
   createEditableTextRange,
   extractEditableText,
@@ -68,8 +69,8 @@ export function renderEditableText(
   let view: SlideHandle | undefined;
   let input: HTMLDivElement | undefined;
   let renderedElement = initial;
-  let renderedHeight = initial.height;
-  let renderedTextHeight = initial.height;
+  let renderedSize = { width: initial.width, height: initial.height };
+  let renderedTextSize = { ...renderedSize };
   let fitContent = false;
   let disposed = false;
 
@@ -165,7 +166,10 @@ export function renderEditableText(
     const root = text;
     if (element.nodeId !== renderedElement.nodeId) fitContent = false;
     else if (textWasReduced(element, renderedElement)) fitContent = true;
-    if (fitContent && root.style.height === 'auto') root.style.minHeight = '0px';
+    if (fitContent && root.style.height === 'auto') {
+      root.style.minHeight = '0px';
+      if (root.style.width === 'max-content') root.style.minWidth = '0px';
+    }
     root.setAttribute('contenteditable', 'true');
     root.tabIndex = 0;
     root.style.pointerEvents = 'auto';
@@ -179,8 +183,11 @@ export function renderEditableText(
     const old = view;
     view = next;
     renderedElement = element;
-    renderedHeight = node.size.h;
-    renderedTextHeight = node.textBoxBounds?.h ?? node.size.h;
+    renderedSize = { width: node.size.w, height: node.size.h };
+    renderedTextSize = {
+      width: node.textBoxBounds?.w ?? node.size.w,
+      height: node.textBoxBounds?.h ?? node.size.h,
+    };
     old?.dispose();
     if (focused) {
       root.focus({ preventScroll: true });
@@ -213,20 +220,15 @@ export function renderEditableText(
       if (disposed) throw new Error('The editable text handle has been disposed.');
       const root = input!;
       const paragraphs = extractEditableText(root, element.paragraphs ?? []);
-      let height = element.height;
-      if (root.isConnected && root.style.height === 'auto') {
-        if (textWasReduced({ ...element, paragraphs }, renderedElement)) fitContent = true;
-        if (fitContent && root.style.minHeight !== '0px') root.style.minHeight = '0px';
-        const computedHeight = Number.parseFloat(
-          root.ownerDocument.defaultView?.getComputedStyle(root).height ?? '',
-        );
-        const textHeight = Number.isFinite(computedHeight) ? computedHeight : root.offsetHeight;
-        if (textHeight > 0) {
-          const fittedHeight = renderedHeight + Math.ceil(textHeight - renderedTextHeight);
-          height = fitContent ? Math.max(1, fittedHeight) : Math.max(height, fittedHeight);
-        }
-      }
-      return { ...element, height, paragraphs };
+      if (textWasReduced({ ...element, paragraphs }, renderedElement)) fitContent = true;
+      const size = measureEditableTextSize(
+        root,
+        element,
+        renderedSize,
+        renderedTextSize,
+        fitContent,
+      );
+      return { ...element, ...size, paragraphs };
     },
     update,
     dispose() {

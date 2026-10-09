@@ -272,7 +272,7 @@ function patchParagraphs(
     for (const run of runs) run.remove();
     for (const [runIndex, run] of paragraph.runs.entries()) {
       const oldRun = runs[runIndex];
-      const parts = run.text.split(/(\n|\t)/).filter(Boolean);
+      const parts = run.text === '' ? [''] : run.text.split(/(\n|\t)/).filter(Boolean);
       for (const text of parts) {
         const runElement =
           oldRun && text !== '\n' && text !== '\t' && ['r', 'fld'].includes(oldRun.localName)

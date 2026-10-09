@@ -43,6 +43,38 @@ describe('renderEditableText', () => {
     }
   });
 
+  it('retains empty-run formatting through extraction and consecutive empty paragraphs', () => {
+    const { presentation, slide, element } = fixture();
+    const styled = {
+      ...element.paragraphs![0].runs[1],
+      text: '',
+      fontSize: 32,
+      fontName: 'Georgia',
+      color: '#FF0000',
+      italic: true,
+      underline: true,
+    };
+    const paragraph = { ...element.paragraphs![0], runs: [styled] };
+    const draft = { ...element, paragraphs: [...element.paragraphs!, paragraph, paragraph] };
+    const edit = renderEditableText(presentation, slide, draft);
+    try {
+      const empty = edit.textElement.children[2];
+      const run = empty.querySelector<HTMLElement>('[data-pptx-run="0"]');
+      expect(run).not.toBeNull();
+      expect(run!.style.fontSize).toBe('32pt');
+      expect(run!.style.color).toBe('rgb(255, 0, 0)');
+      expect(run!.style.fontFamily).toContain('Georgia');
+      expect(run!.textContent).toBe('\u200B');
+      expect(empty.querySelector('br')).toBeNull();
+      expect(edit.extract().paragraphs![2].runs).toEqual([styled]);
+      const range = createEditableTextRange(edit.textElement, 2, 0, 2, 0)!;
+      range.insertNode(document.createTextNode('Typed'));
+      expect(edit.extract().paragraphs![2].runs).toEqual([{ ...styled, text: 'Typed' }]);
+    } finally {
+      edit.dispose();
+    }
+  });
+
   it('shrinks after deleting text and keeps the fitted height across model updates', () => {
     const { presentation, slide, element } = fixture(undefined, '', '', { height: 120 });
     const edit = renderEditableText(presentation, slide, element);
@@ -92,19 +124,81 @@ describe('renderEditableText', () => {
     }
   });
 
+  it('fits both axes of unwrapped input without compounding size or changing saved XML', () => {
+    const { presentation, slide, element } = fixture(
+      '<a:bodyPr wrap="none"><a:noAutofit/></a:bodyPr>',
+      '',
+      '',
+      { height: 48 },
+    );
+    const before = new XMLSerializer().serializeToString(slide.root!.element!);
+    const edit = renderEditableText(presentation, slide, element);
+    document.body.append(edit.element);
+    const width = vi.spyOn(edit.textElement, 'offsetWidth', 'get').mockReturnValue(801);
+    const height = vi.spyOn(edit.textElement, 'offsetHeight', 'get').mockReturnValue(81);
+    try {
+      expect(edit.textElement.style.width).toBe('max-content');
+      expect(edit.textElement.style.minWidth).toBe(`${element.width}px`);
+      const grown = edit.extract();
+      expect(grown.width).toBe(801);
+      expect(grown.height).toBe(81);
+      expect(edit.extract(grown)).toEqual(grown);
+      edit.update(grown);
+      expect(edit.extract()).toEqual(grown);
+      width.mockReturnValue(160);
+      height.mockReturnValue(32);
+      edit.textElement.firstElementChild!.textContent = 'Short';
+      const reduced = edit.extract();
+      expect(reduced.width).toBe(160);
+      expect(reduced.height).toBe(32);
+      expect(edit.textElement.style.minWidth).toBe('0px');
+      edit.update(reduced);
+      expect(edit.extract()).toEqual(reduced);
+      edit.element.remove();
+      width.mockReturnValue(999);
+      expect(edit.extract()).toEqual(reduced);
+      expect(new XMLSerializer().serializeToString(slide.root!.element!)).toBe(before);
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+      edit.dispose();
+      document.body.replaceChildren();
+    }
+  });
+
+  it.each(['wrap="square"', ''])('retains wrapping width while fitting height (%s)', (wrap) => {
+    const { presentation, slide, element } = fixture(`<a:bodyPr ${wrap}><a:spAutoFit/></a:bodyPr>`);
+    const edit = renderEditableText(presentation, slide, element);
+    document.body.append(edit.element);
+    const width = vi.spyOn(edit.textElement, 'offsetWidth', 'get').mockReturnValue(999);
+    try {
+      expect(edit.textElement.style.width).not.toBe('max-content');
+      expect(edit.extract().width).toBe(element.width);
+      edit.textElement.firstElementChild!.textContent = 'Short';
+      expect(edit.extract().width).toBe(element.width);
+    } finally {
+      width.mockRestore();
+      edit.dispose();
+      document.body.replaceChildren();
+    }
+  });
+
   it('does not measure height growth for vertical input', () => {
     const { presentation, slide, element } = fixture(
       '<a:bodyPr vert="eaVert"><a:noAutofit/></a:bodyPr>',
     );
     const edit = renderEditableText(presentation, slide, element);
     document.body.append(edit.element);
+    const width = vi.spyOn(edit.textElement, 'offsetWidth', 'get').mockReturnValue(999);
     const height = vi.spyOn(edit.textElement, 'offsetHeight', 'get').mockReturnValue(999);
     try {
+      expect(edit.extract().width).toBe(element.width);
       expect(edit.extract().height).toBe(element.height);
       edit.textElement.firstElementChild!.textContent = 'Short';
       expect(edit.extract().height).toBe(element.height);
       expect(edit.textElement.style.minHeight).not.toBe('0px');
     } finally {
+      width.mockRestore();
       height.mockRestore();
       edit.dispose();
       document.body.replaceChildren();
@@ -154,7 +248,9 @@ describe('renderEditableText', () => {
         expect(edit.textElement).toBe(input);
         expect(document.activeElement).toBe(input);
         expect(extractEditableText(input, empty.paragraphs!)).toEqual(empty.paragraphs);
-        expect(input.querySelector('[data-pptx-paragraph="0"] > br')).not.toBeNull();
+        expect(
+          input.querySelector('[data-pptx-paragraph="0"] [data-pptx-run="0"]')?.textContent,
+        ).toBe('\u200B');
 
         const range = createEditableTextRange(input, 0, 0, 0, 0)!;
         range.insertNode(document.createTextNode('New text'));
@@ -189,7 +285,7 @@ describe('renderEditableText', () => {
       const input = edit.textElement;
       expect(input.style.height).toBe('auto');
       expect(input.style.minHeight).toBe('48px');
-      expect(input.style.width).toBe('100%');
+      expect(input.style.width).toBe(body.includes('wrap="none"') ? 'max-content' : '100%');
       expect(input.style.whiteSpace).toBe(body.includes('wrap="none"') ? 'nowrap' : 'normal');
       expect(input.style.overflowX).toBe('visible');
       expect(input.style.overflowY).toBe('visible');
@@ -271,6 +367,8 @@ describe('renderEditableText', () => {
           if (!clone.style.writingMode) {
             // Inputs grow rather than fitting/clipping. Preview autofit may also force nowrap.
             for (const property of [
+              'width',
+              'min-width',
               'height',
               'min-height',
               'overflow',

@@ -1162,8 +1162,7 @@ export function renderTextBody(
     // ---- Render runs ----
     const compactNumericRunGroups = findCompactNumericRunGroups(paragraph.runs);
     const compactNumericGroupElements = new Map<number, HTMLElement>();
-    if (!hasVisibleRuns) {
-      // Empty paragraph — still need to maintain spacing
+    if (!hasVisibleRuns && (!ctx.editableText || paragraph.runs.length === 0)) {
       paraDiv.appendChild(document.createElement('br'));
     }
 
@@ -1303,7 +1302,7 @@ export function renderTextBody(
           .replace(/ {2}/g, ' \u00a0');
         element.innerHTML = escaped;
       } else {
-        element.textContent = run.text;
+        element.textContent = ctx.editableText && run.text === '' ? '\u200B' : run.text;
       }
       if (
         compactNumericToken &&

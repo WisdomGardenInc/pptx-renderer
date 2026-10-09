@@ -2880,6 +2880,10 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
       if (ctx.editableText && !isVerticalText) {
         textContainer.style.height = 'auto';
         textContainer.style.minHeight = `${node.textBoxBounds?.h ?? node.size.h}px`;
+        if (textWrap === 'none') {
+          textContainer.style.width = 'max-content';
+          textContainer.style.minWidth = `${node.textBoxBounds?.w ?? node.size.w}px`;
+        }
         textContainer.style.overflowX = 'visible';
         textContainer.style.overflowY = 'visible';
         needsDynamicAutofit = false;

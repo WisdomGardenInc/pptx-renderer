@@ -323,7 +323,9 @@ for (const textBox of [true, false]) {
           await state.evaluate(({ edit, root }) => ({
             sameRoot: edit.textElement === root,
             focused: document.activeElement === root,
-            emptyParagraph: !!root.querySelector('[data-pptx-paragraph="0"] > br'),
+            emptyParagraph:
+              root.querySelector('[data-pptx-paragraph="0"]').textContent.replace(/\u200B/g, '') ===
+              '',
           })),
         ).toEqual({ sameRoot: true, focused: true, emptyParagraph: true });
         await page.keyboard.insertText('New text');
