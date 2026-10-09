@@ -10,7 +10,11 @@ import { editSlideElements } from '../writer/ElementWriter';
 import type { EditableElement } from './EditableElement';
 import { sourceElement } from './parts';
 import { readSlideElements } from './readSlideElements';
-import { createEditableTextRange, mapEditableTextPositionToParagraph } from './editableTextDom';
+import {
+  createEditableTextRange,
+  extractEditableText,
+  mapEditableTextPositionToParagraph,
+} from './editableTextDom';
 
 export interface EditableTextHandle {
   /** Transparent overlay in native 96-DPI pixels. The host applies its canvas scale. */
@@ -18,6 +22,7 @@ export interface EditableTextHandle {
   /** Stable input root, retained by update() so listeners and IME ownership survive. */
   readonly textElement: HTMLDivElement;
   readonly ready: Promise<void>;
+  extract(element?: EditableElement): EditableElement;
   /** Apply model text/geometry without mutating the presentation or slide XML. */
   update(element: EditableElement, context?: EditableTextContext): void;
   dispose(): void;
@@ -33,7 +38,16 @@ export type EditableTextOptions = Pick<
   'mediaUrlCache' | 'fontFaces' | 'embeddedFonts' | 'embeddedFontLimits' | 'pdfjs'
 >;
 
-/** Render one editable text/shape using the same inherited layout as the slide preview. */
+function textWasReduced(next: EditableElement, previous: EditableElement): boolean {
+  const text = (element: EditableElement) =>
+    (element.paragraphs ?? [])
+      .map((paragraph) => paragraph.runs.map((run) => run.text).join(''))
+      .join('\n');
+  const before = text(previous);
+  const after = text(next);
+  return after.length < before.length || after.split('\n').length < before.split('\n').length;
+}
+
 export function renderEditableText(
   presentation: PresentationData,
   slide: SlideData,
@@ -53,6 +67,10 @@ export function renderEditableText(
   const media = options.mediaUrlCache ?? new Map<string, string>();
   let view: SlideHandle | undefined;
   let input: HTMLDivElement | undefined;
+  let renderedElement = initial;
+  let renderedHeight = initial.height;
+  let renderedTextHeight = initial.height;
+  let fitContent = false;
   let disposed = false;
 
   const update = (element: EditableElement, context?: EditableTextContext): void => {
@@ -145,6 +163,9 @@ export function renderEditableText(
       throw new Error('This PPTX shape has no editable text container.');
     }
     const root = text;
+    if (element.nodeId !== renderedElement.nodeId) fitContent = false;
+    else if (textWasReduced(element, renderedElement)) fitContent = true;
+    if (fitContent && root.style.height === 'auto') root.style.minHeight = '0px';
     root.setAttribute('contenteditable', 'true');
     root.tabIndex = 0;
     root.style.pointerEvents = 'auto';
@@ -157,6 +178,9 @@ export function renderEditableText(
     overlay.replaceChildren(next.element);
     const old = view;
     view = next;
+    renderedElement = element;
+    renderedHeight = node.size.h;
+    renderedTextHeight = node.textBoxBounds?.h ?? node.size.h;
     old?.dispose();
     if (focused) {
       root.focus({ preventScroll: true });
@@ -184,6 +208,25 @@ export function renderEditableText(
     },
     get ready() {
       return view!.ready;
+    },
+    extract(element = renderedElement) {
+      if (disposed) throw new Error('The editable text handle has been disposed.');
+      const root = input!;
+      const paragraphs = extractEditableText(root, element.paragraphs ?? []);
+      let height = element.height;
+      if (root.isConnected && root.style.height === 'auto') {
+        if (textWasReduced({ ...element, paragraphs }, renderedElement)) fitContent = true;
+        if (fitContent && root.style.minHeight !== '0px') root.style.minHeight = '0px';
+        const computedHeight = Number.parseFloat(
+          root.ownerDocument.defaultView?.getComputedStyle(root).height ?? '',
+        );
+        const textHeight = Number.isFinite(computedHeight) ? computedHeight : root.offsetHeight;
+        if (textHeight > 0) {
+          const fittedHeight = renderedHeight + Math.ceil(textHeight - renderedTextHeight);
+          height = fitContent ? Math.max(1, fittedHeight) : Math.max(height, fittedHeight);
+        }
+      }
+      return { ...element, height, paragraphs };
     },
     update,
     dispose() {

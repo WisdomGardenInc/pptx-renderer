@@ -558,7 +558,15 @@ and copying. Structural page changes still require `buildPresentation`.
 input overlay using the preview's native text layout. It does not mutate the
 slide XML, render the slide background, or hide other slide objects. Geometry
 stays in native pixels; the host applies its canvas scale and hides the matching
-preview object while the overlay is active.
+preview object while the overlay is active. Horizontal inputs keep the original
+text box as their minimum height until text is deleted. They grow with added lines
+and fit the remaining content after deletions, including after saving and re-entering
+editing, instead of applying extra browser autofit scaling or clipping. Stored OOXML
+font scaling is retained; vertical text keeps its native layout. `input.extract(draft)`
+returns both text and the fitted height in native pixels (independent of canvas scaling). Call it while
+the input is mounted, then persist the returned element with `editSlideElements`
+and refresh the preview with `refreshSlideParts`. Committing only paragraphs keeps
+the old shape height and can shrink text again after leaving editing mode.
 
 ```ts
 const slide = presentation.slides[0];
@@ -568,12 +576,17 @@ host.append(input.element);
 await input.ready;
 
 input.textElement.addEventListener('input', () => {
-  draft = { ...draft, paragraphs: extractEditableText(input.textElement, draft.paragraphs ?? []) };
+  draft = input.extract(draft); // Includes the fitted native-pixel height.
 });
 
 // Formatting/model updates retain the input root, listeners, focus and selection.
 input.update(draft);
 // To use newly loaded parts: input.update(draft, { presentation, slide });
+
+// On exit, extract BEFORE removing the input, then persist the full draft
+// (including height) using the editSlideElements/refreshSlideParts flow above.
+await input.ready;
+draft = input.extract(draft);
 input.dispose();
 input.element.remove();
 ```

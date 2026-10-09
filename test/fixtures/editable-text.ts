@@ -10,13 +10,13 @@ export function createEditableTextFixture(
   body = '<a:bodyPr><a:noAutofit/></a:bodyPr>',
   pPr = '',
   content = '',
-  options: { empty?: boolean; textBox?: boolean } = {},
+  options: { empty?: boolean; textBox?: boolean; height?: number } = {},
 ) {
   const runs = options.empty
     ? ''
     : '<a:r><a:rPr sz="2400"/><a:t>Hello  </a:t></a:r><a:r><a:rPr sz="2400" b="1"/><a:t>world</a:t></a:r>';
   const shape = (id: number) =>
-    `<p:sp><p:nvSpPr><p:cNvPr id="${id}"/><p:cNvSpPr${options.textBox === false ? '' : ' txBox="1"'}/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${id === 2 ? 952500 : 7620000}" y="952500"/><a:ext cx="5715000" cy="2857500"/></a:xfrm><a:prstGeom prst="rect"/><a:noFill/></p:spPr><p:txBody>${body}<a:lstStyle/><a:p><a:pPr>${pPr}</a:pPr>${runs}${content}</a:p></p:txBody></p:sp>`;
+    `<p:sp><p:nvSpPr><p:cNvPr id="${id}"/><p:cNvSpPr${options.textBox === false ? '' : ' txBox="1"'}/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${id === 2 ? 952500 : 7620000}" y="952500"/><a:ext cx="5715000" cy="${(options.height ?? 300) * 9525}"/></a:xfrm><a:prstGeom prst="rect"/><a:noFill/></p:spPr><p:txBody>${body}<a:lstStyle/><a:p><a:pPr>${pPr}</a:pPr>${runs}${content}</a:p></p:txBody></p:sp>`;
   const files: PptxFiles = {
     contentTypes: '',
     presentation: `<p:presentation xmlns:p="${P}" xmlns:r="${R}"><p:sldIdLst><p:sldId id="256" r:id="slide"/></p:sldIdLst><p:sldSz cx="15240000" cy="8572500"/></p:presentation>`,
@@ -46,5 +46,5 @@ export function createEditableTextFixture(
   };
   const presentation = buildPresentation(files);
   const slide = presentation.slides[0];
-  return { presentation, slide, element: readSlideElements(presentation, slide)[0] };
+  return { files, presentation, slide, element: readSlideElements(presentation, slide)[0] };
 }

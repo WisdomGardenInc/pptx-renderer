@@ -2873,6 +2873,18 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
       renderTextBody(textBody, node.placeholder, ctx, textContainer, textOptions);
       wrapper.appendChild(textContainer);
 
+      // Active horizontal inputs need space for new paragraphs, not a smaller font.
+      // Keep the original box as the minimum so alignment/insets still match when
+      // content fits; auto height also responds to browser edits before a model update.
+      // Stored normAutofit fontScale remains applied by renderTextBody above.
+      if (ctx.editableText && !isVerticalText) {
+        textContainer.style.height = 'auto';
+        textContainer.style.minHeight = `${node.textBoxBounds?.h ?? node.size.h}px`;
+        textContainer.style.overflowX = 'visible';
+        textContainer.style.overflowY = 'visible';
+        needsDynamicAutofit = false;
+      }
+
       // Dynamic text fit: measure rendered text and compute any additional scale
       // needed after OOXML fontScale, spAutoFit, or implicit single-line fitting.
       if (needsDynamicAutofit) {
