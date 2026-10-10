@@ -524,6 +524,87 @@ await handle.ready;
 handle.dispose();
 ```
 
+#### Editing projected elements
+
+The main package exports `readSlideElements`, `editSlideElements`, and
+`refreshSlideParts` for editors that keep their own application state. Editable
+values use native 96-DPI pixels for geometry, padding, and paragraph margins;
+font sizes and point spacing use points. Hosts adapt their canvas coordinates
+and filter product overlays before calling the writer.
+
+```ts
+const previous = readSlideElements(presentation, presentation.slides[0]);
+const edited = structuredClone(previous);
+edited[0].x += 20;
+const part = editSlideElements(
+  presentation.slides[0],
+  edited,
+  previous,
+  relationshipsXml,
+  embeddedImageParts,
+);
+files.slides.set(presentation.slides[0].slidePath, part.xml);
+files.slideRels.set(relationshipsPart(presentation.slides[0].slidePath), part.relsXml ?? '');
+presentation = refreshSlideParts(presentation, files, [0]);
+```
+
+`embeddedImageParts` maps host element IDs to already embedded media part paths.
+Image acquisition, storage, revisions, and assembling the complete package remain
+host responsibilities. Existing opaque chart, table, and group objects carry
+`sourceXml`, `sourcePart`, and relationships so unmodified content survives edits
+and copying. Structural page changes still require `buildPresentation`.
+
+`renderEditableText` renders a text box or text-bearing shape as a transparent
+input overlay using the preview's native text layout. It does not mutate the
+slide XML, render the slide background, or hide other slide objects. Geometry
+stays in native pixels; the host applies its canvas scale and hides the matching
+preview object while the overlay is active. Horizontal inputs keep the original
+text box as their minimum height until text is deleted. They grow with added lines
+and fit the remaining content after deletions, including after saving and re-entering
+editing, instead of applying extra browser autofit scaling or clipping. Stored OOXML
+font scaling is retained; vertical text keeps its native layout. `input.extract(draft)`
+returns both text and the fitted height in native pixels (independent of canvas scaling). Call it while
+the input is mounted, then persist the returned element with `editSlideElements`
+and refresh the preview with `refreshSlideParts`. Committing only paragraphs keeps
+the old shape height and can shrink text again after leaving editing mode.
+
+```ts
+const slide = presentation.slides[0];
+let draft = readSlideElements(presentation, slide).find((item) => item.type === 'text')!;
+const input = renderEditableText(presentation, slide, draft);
+host.append(input.element);
+await input.ready;
+
+input.textElement.addEventListener('input', () => {
+  draft = input.extract(draft); // Includes the fitted native-pixel height.
+});
+
+// Formatting/model updates retain the input root, listeners, focus and selection.
+input.update(draft);
+// To use newly loaded parts: input.update(draft, { presentation, slide });
+
+// On exit, extract BEFORE removing the input, then persist the full draft
+// (including height) using the editSlideElements/refreshSlideParts flow above.
+await input.ready;
+draft = input.extract(draft);
+input.dispose();
+input.element.remove();
+```
+
+The main package also exports `mapEditableTextPositionToRun`,
+`mapEditableTextPositionToParagraph`, and `createEditableTextRange` for selection
+mapping. `extractEditableText` preserves the host's paragraph/run metadata and
+understands bullets, links, compact text groups, fixed-spacing line blocks and
+browser-inserted text. Semantic DOM markers are emitted during editing render;
+ordinary previews keep their existing markup. SVG-warped WordArt has no HTML
+input container and is not supported by this input API. Persistence, undo,
+keyboard policy, and application-specific style controls belong to the host.
+
+For previews that must wait for paintable images, pass `{ waitForImages: true }`
+to `renderSlide`, mount `handle.element`, and await `handle.ready`. This includes
+HTML, SVG, and CSS background image decoding; `handle.dispose()` cancels pending
+waits. The option defaults to false to preserve existing readiness behavior.
+
 #### Model Types
 
 All model types are exported for consumers building custom tooling:

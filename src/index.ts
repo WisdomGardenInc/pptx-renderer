@@ -76,3 +76,46 @@ export type { TableNodeData, TableCell, TableRow } from './model/nodes/TableNode
 export type { GroupNodeData } from './model/nodes/GroupNode';
 export type { ChartNodeData } from './model/nodes/ChartNode';
 export type { PptxFiles } from './parser/ZipParser';
+
+// Low-level authoring/editing primitives: parse raw OOXML and build a shape node from it.
+// Useful for editors that add or restyle elements against the live model.
+export { parseXml, SafeXmlNode } from './parser/XmlParser';
+export { parseShapeNode, parseTextBody } from './model/nodes/ShapeNode';
+export { applyPlainText, paragraphPlainText, readPlainText } from './model/nodes/textEdit';
+
+// Slide writer: push model edits back into the slide's OOXML and serialize the part.
+// Incremental — untouched elements (charts, SmartArt, effects) pass through as-is.
+// Assembling a package from a baseline plus serialized parts is left to the caller.
+export { serializeSlide, syncSlide } from './writer/SlideWriter';
+export { RPR_CHILD_ORDER, insertOrdered } from './writer/xmlEdit';
+export type { SerializedSlidePart } from './writer/SlideWriter';
+
+// Framework-free editing: hosts adapt their own state to pixel/point values.
+export { editSlideElements } from './writer/ElementWriter';
+export { readSlideElements, imagePartPaths } from './editor/readSlideElements';
+export { renderEditableText } from './editor/renderEditableText';
+export type {
+  EditableTextContext,
+  EditableTextHandle,
+  EditableTextOptions,
+} from './editor/renderEditableText';
+export {
+  isEditableTextRoot,
+  extractEditableText,
+  mapEditableTextPositionToRun,
+  mapEditableTextPositionToParagraph,
+  createEditableTextRange,
+} from './editor/editableTextDom';
+export type {
+  EditableTextRunPosition,
+  EditableTextParagraphPosition,
+} from './editor/editableTextDom';
+export { relationshipsPart, resolvePartPath, sourceElement } from './editor/parts';
+export type {
+  EditableElement,
+  EditableParagraph,
+  EditableTextRun,
+  EditableBullet,
+} from './editor/EditableElement';
+export { refreshSlideParts } from './editor/refreshSlideParts';
+export { waitForSlideImages } from './renderer/slideImages';

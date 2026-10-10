@@ -1,0 +1,268 @@
+:root {
+  --bg: #1e1f22;
+  --panel: #2a2c30;
+  --panel-2: #34373c;
+  --border: #45484e;
+  --text: #e6e7ea;
+  --muted: #9aa0a8;
+  --accent: #2b7fff;
+  --error: #ff6b6b;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.4 system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    sans-serif;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* Prevent accidental text selection while dragging transform handles.
+     Form controls (the inline text editor in a later phase) re-enable it. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+[contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.brand {
+  font-size: 15px;
+}
+
+.tag {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 2px 4px;
+}
+
+.btn.danger:hover:not(:disabled) {
+  border-color: var(--error);
+}
+
+.slide-count {
+  min-width: 60px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--error);
+}
+
+.body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+.stage-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 16px;
+  position: relative;
+}
+
+.stage {
+  min-height: 100%;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.panel {
+  flex: 0 0 260px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 14px;
+  overflow: auto;
+}
+
+.panel-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.props {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.props dt {
+  color: var(--muted);
+}
+
+.props dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.style {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.section {
+  margin: 12px 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.field label {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.field input[type='number'] {
+  width: 72px;
+}
+
+.field input,
+.field select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+}
+
+.field input[type='color'] {
+  width: 40px;
+  height: 28px;
+  padding: 2px;
+}
+
+.toggles {
+  display: flex;
+  gap: 6px;
+}
+
+.btn.toggle {
+  width: 32px;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.btn.toggle.on {
+  border-color: var(--accent);
+  background: rgba(43, 127, 255, 0.2);
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.edit-text-btn {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 8px;
+}

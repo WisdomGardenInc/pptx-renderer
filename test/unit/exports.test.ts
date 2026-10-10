@@ -19,6 +19,11 @@ import {
   searchPresentation,
   searchText,
   renderSlide,
+  applyPlainText,
+  readPlainText,
+  paragraphPlainText,
+  insertOrdered,
+  RPR_CHILD_ORDER,
 } from '../../src/index';
 
 // Type-only imports — these just need to compile, not be used at runtime.
@@ -145,6 +150,17 @@ describe('package exports', () => {
 
   it('exports renderSlide function', () => {
     expect(typeof renderSlide).toBe('function');
+  });
+
+  it('exports text editing primitives', () => {
+    expect(typeof applyPlainText).toBe('function');
+    expect(typeof readPlainText).toBe('function');
+    expect(typeof paragraphPlainText).toBe('function');
+  });
+
+  it('exports ordered OOXML authoring helpers', () => {
+    expect(typeof insertOrdered).toBe('function');
+    expect(RPR_CHILD_ORDER.indexOf('solidFill')).toBeLessThan(RPR_CHILD_ORDER.indexOf('latin'));
   });
 
   it('does not export init() (removed in v1.0.0)', async () => {

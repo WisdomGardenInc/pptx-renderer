@@ -38,6 +38,10 @@
       "types": "./dist/types/index.d.ts",
       "import": "./dist/aiden0z-pptx-renderer.browser.es.js",
       "default": "./dist/aiden0z-pptx-renderer.browser.es.js"
+    },
+    "./editor": {
+      "types": "./dist/types/editor/index.d.ts",
+      "default": "./dist/editor.es.js"
     }
   },
   "files": [

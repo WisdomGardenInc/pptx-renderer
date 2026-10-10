@@ -28,6 +28,13 @@ export interface SlideData {
   colorMapOverride?: Map<string, string>;
   /** Whether clrMapOvr supplies an override map or explicitly resets to the master map. */
   colorMapOverrideMode?: ColorMapOverrideMode;
+  /**
+   * @internal Root `p:sld` element of the part this slide was parsed from.
+   * The slide writer serializes from here; it is the only handle on the owning
+   * Document that survives an edit, since a newly created node's `source` belongs
+   * to whatever Document parsed it rather than to this part.
+   */
+  root?: SafeXmlNode;
   /** @internal Raw slide XML used when slide node parsing is deferred. */
   sourceXml?: string;
   /** @internal Whether `nodes` has been parsed from `sourceXml`. */
@@ -99,6 +106,7 @@ export function parseSlide(
     index,
     hidden,
     nodes,
+    root,
     background,
     layoutIndex,
     rels,
@@ -149,6 +157,7 @@ export function materializeSlideData(
 
   slide.hidden = parsed.hidden;
   slide.nodes = parsed.nodes;
+  slide.root = parsed.root;
   slide.background = parsed.background;
   slide.layoutIndex = resolvedLayoutIndex || parsed.layoutIndex;
   slide.showMasterSp = parsed.showMasterSp;

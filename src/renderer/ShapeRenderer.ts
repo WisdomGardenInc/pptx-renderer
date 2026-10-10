@@ -2570,9 +2570,13 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
     }
   }
 
-  // ---- Render text overlay (only when there is visible text; skip for decorative shapes with empty txBody) ----
+  // Previews skip empty decorative text, but editing needs a container for the caret/input.
   const textBody = node.textBody ? resolveTextFields(node.textBody, ctx) : undefined;
-  if (textBody && textBody.paragraphs.length > 0 && hasVisibleText(textBody)) {
+  if (
+    textBody &&
+    textBody.paragraphs.length > 0 &&
+    (ctx.editableText || hasVisibleText(textBody))
+  ) {
     const warpedText = renderWarpedTextBody(
       textBody === node.textBody ? node : { ...node, textBody },
       ctx,
@@ -2580,7 +2584,15 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
     if (warpedText) {
       wrapper.appendChild(warpedText);
     } else {
-      const textContainer = document.createElement('div');
+      const textContainer = ctx.editableTextRoot ?? document.createElement('div');
+      if (ctx.editableTextRoot) {
+        textContainer.style.cssText = '';
+        textContainer.replaceChildren();
+      }
+      if (ctx.editableText) {
+        textContainer.dataset.pptxEditable = 'true';
+        textContainer.dataset.pptxTextRoot = node.id;
+      }
       textContainer.style.position = 'absolute';
       if (node.textBoxBounds) {
         textContainer.style.left = `${node.textBoxBounds.x}px`;
@@ -2860,6 +2872,22 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
 
       renderTextBody(textBody, node.placeholder, ctx, textContainer, textOptions);
       wrapper.appendChild(textContainer);
+
+      // Active horizontal inputs need space for new paragraphs, not a smaller font.
+      // Keep the original box as the minimum so alignment/insets still match when
+      // content fits; auto height also responds to browser edits before a model update.
+      // Stored normAutofit fontScale remains applied by renderTextBody above.
+      if (ctx.editableText && !isVerticalText) {
+        textContainer.style.height = 'auto';
+        textContainer.style.minHeight = `${node.textBoxBounds?.h ?? node.size.h}px`;
+        if (textWrap === 'none') {
+          textContainer.style.width = 'max-content';
+          textContainer.style.minWidth = `${node.textBoxBounds?.w ?? node.size.w}px`;
+        }
+        textContainer.style.overflowX = 'visible';
+        textContainer.style.overflowY = 'visible';
+        needsDynamicAutofit = false;
+      }
 
       // Dynamic text fit: measure rendered text and compute any additional scale
       // needed after OOXML fontScale, spAutoFit, or implicit single-line fitting.

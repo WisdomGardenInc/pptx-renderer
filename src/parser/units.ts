@@ -57,3 +57,20 @@ export function smartToPx(value: number): number {
   }
   return ptToPx(value);
 }
+
+// --- Inverse conversions (model → OOXML), used by the slide writer ---
+
+/** Pixels (at 96 DPI) back to EMU. Rounded: EMU is an integer unit. */
+export function pxToEmu(px: number): number {
+  return Math.round((px / 96) * 914400);
+}
+
+/** Degrees back to the OOXML angle unit (60000ths of a degree). */
+export function degToAngle(deg: number): number {
+  return Math.round(deg * 60000);
+}
+
+/** Points back to hundredths of a point (OOXML font sizes). */
+export function ptToHundredthPt(pt: number): number {
+  return Math.round(pt * 100);
+}

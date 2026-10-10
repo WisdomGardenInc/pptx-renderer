@@ -72,6 +72,30 @@ function makeSlide(): SlideData {
 }
 
 describe('SlideHandle lifecycle', () => {
+  it('includes image readiness only when requested and cancels it on disposal', async () => {
+    const image = () => {
+      const element = document.createElement('img');
+      element.src = '/pending.png';
+      return element;
+    };
+    const normal = renderSlide(makeMinimalPres(), makeSlide());
+    normal.element.appendChild(image());
+    await normal.ready;
+    normal.dispose();
+
+    const waiting = renderSlide(makeMinimalPres(), makeSlide(), { waitForImages: true });
+    waiting.element.appendChild(image());
+    let ready = false;
+    const completed = waiting.ready.then(() => {
+      ready = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ready).toBe(false);
+    waiting.dispose();
+    await completed;
+    expect(ready).toBe(true);
+  });
+
   it('returns a SlideHandle with element, dispose, and Symbol.dispose', () => {
     const pres = makeMinimalPres();
     const handle = renderSlide(pres, makeSlide());
