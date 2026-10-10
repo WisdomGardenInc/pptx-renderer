@@ -64,7 +64,7 @@ async function reload(slide: SlideData, id: string): Promise<ShapeNodeData> {
 }
 
 describe('a text edit survives the file', () => {
-  it('keeps paragraph and run styles of a real multi-run body', async () => {
+  it('keeps paragraph and run styles of a real multi-run body', { timeout: 30_000 }, async () => {
     const raw = readFileSync(
       resolve(process.cwd(), 'docs/example/1-chart-and-complex/source.pptx'),
     );

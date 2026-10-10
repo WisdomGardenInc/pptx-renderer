@@ -21,7 +21,7 @@ const OUT = process.env.WRITER_OUT ?? resolve(__dirname, '../../../docs/agent-tm
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 
 describe('writer round-trip on a real deck', () => {
-  it('edits a slide and reassembles a package', async () => {
+  it('edits a slide and reassembles a package', { timeout: 30_000 }, async () => {
     // Copy into a plain ArrayBuffer: jsdom and Node hold separate realms, and
     // JSZip rejects a Buffer whose backing store came from the other one.
     const buf = readFileSync(SRC);

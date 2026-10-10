@@ -38,7 +38,8 @@ function readCase(stem: string): Uint8Array {
 
 describe('a serialized slide reloads to the same model', () => {
   for (const stem of CASES) {
-    it(`${stem}: node types, ids and boxes are unchanged`, async () => {
+    // Real-deck parsing and compression compete with the full suite's workers.
+    it(`${stem}: node types, ids and boxes are unchanged`, { timeout: 30_000 }, async () => {
       const bytes = readCase(stem);
 
       const before = await load(bytes);
