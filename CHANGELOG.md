@@ -7,6 +7,25 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-10
+
+### Added
+
+- Added slide element editing and writer APIs to read editable elements, persist model edits to
+  slide XML, override slide parts, and incrementally refresh previews without rebuilding the deck.
+- Added editable text overlays with selection mapping, empty text support, style-preserving
+  extraction, and native-pixel width/height fitting as content changes. Empty lines retain their
+  paragraph and run formatting through editing and XML round trips.
+- Added the optional `./editor` package entry and an in-browser Office-style editor proof of
+  concept under `apps/editor`, with element selection, transforms, formatting, and text editing.
+- Added opt-in `waitForImages` slide readiness for HTML, SVG, and CSS background images, with
+  cancellation when the slide handle is disposed.
+
+### Changed
+
+- Gave real-deck writer round-trip tests a 30-second budget so parsing and compression can finish
+  while the complete unit suite runs in parallel.
+
 ## [1.4.1] - 2026-09-17
 
 ### Fixed
