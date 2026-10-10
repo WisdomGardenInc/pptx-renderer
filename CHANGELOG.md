@@ -7,6 +7,24 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-10
+
+### Added
+
+- Compose PPTX decks from template slides with `analyzeDeck` and `composeDeck`, including
+  repeated groups and per-page `set_text`, `clear`, `set_items` and `set_image` operations.
+- Replace picture artwork with supplied PNG or JPEG bytes while preserving the picture frame.
+  Linked pictures and SVG alternatives are handled; audio/video posters and pictures removed by
+  earlier operations produce explicit compose problems.
+- Address text inside groups with inherited styles and absolute bounds, and allow callers to
+  cap package expansion during template analysis.
+
+### Fixed
+
+- Fit replacement text inside its container and around overlapping artwork, with a wider
+  character estimate for uppercase text.
+- Share group transforms between template analysis and text search so both report the same bounds.
+
 ## [1.5.0] - 2026-10-10
 
 ### Added
