@@ -44,6 +44,7 @@ export interface EditableElement {
   id: string;
   type: 'text' | 'shape' | 'image' | 'line' | 'table' | 'chart' | 'group' | 'smartart';
   nodeId?: string;
+  parentNodeId?: string;
   sourceXml?: string;
   sourcePart?: string;
   relationships?: Record<string, { type: string; target: string; targetMode?: string }>;

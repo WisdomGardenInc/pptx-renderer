@@ -2,13 +2,12 @@ import type { PresentationData } from '../model/Presentation';
 import { materializeSlideNodes } from '../model/Presentation';
 import type { SlideData } from '../model/Slide';
 import { parseSlide } from '../model/Slide';
-import { parseShapeNode } from '../model/nodes/ShapeNode';
 import { parseXml } from '../parser/XmlParser';
 import { renderSlide } from '../renderer/SlideRenderer';
 import type { SlideHandle, SlideRendererOptions } from '../renderer/SlideRenderer';
 import { editSlideElements } from '../writer/ElementWriter';
 import type { EditableElement } from './EditableElement';
-import { sourceElement } from './parts';
+import { slideElementNodes } from './slideElementNodes';
 import { readSlideElements } from './readSlideElements';
 import { measureEditableTextSize } from './measureEditableTextSize';
 import {
@@ -98,37 +97,30 @@ export function renderEditableText(
       presentation.diagramDrawings,
     );
     materializeSlideNodes(presentation, temporary);
-    const original = temporary.nodes.find((node) => node.id === element.nodeId);
-    const previous = readSlideElements(presentation, temporary).find(
-      (item) => item.nodeId === element.nodeId,
+    const previous = readSlideElements(presentation, temporary).map((item) =>
+      item.nodeId === element.nodeId ? { ...item, id: element.id } : item,
     );
-    if (original?.nodeType !== 'shape' || !previous) throw new Error('Missing PPTX text node.');
-    editSlideElements(temporary, [element], [{ ...previous, id: element.id }], null, new Map());
-    const source = sourceElement(temporary, element.nodeId);
-    const shape =
-      source?.localName === 'sp'
-        ? source
-        : source?.getElementsByTagNameNS(
-            'http://schemas.openxmlformats.org/presentationml/2006/main',
-            'sp',
-          )[0];
-    if (!shape) throw new Error('Missing PPTX text shape.');
-    const parsed = parseShapeNode(parseXml(new XMLSerializer().serializeToString(shape)));
-    const node = {
-      ...original,
-      source: parsed.source,
-      position: parsed.position,
-      size: parsed.size,
-      rotation: parsed.rotation,
-      flipH: parsed.flipH,
-      flipV: parsed.flipV,
-      textBody: parsed.textBody
-        ? {
-            ...parsed.textBody,
-            layoutBodyProperties: original.textBody?.layoutBodyProperties,
-          }
-        : undefined,
-    };
+    if (!previous.some((item) => item.nodeId === element.nodeId))
+      throw new Error('Missing PPTX text node.');
+    const edited = editSlideElements(
+      temporary,
+      previous.map((item) => (item.nodeId === element.nodeId ? element : item)),
+      previous,
+      null,
+      new Map(),
+    );
+    const updatedSlide = parseSlide(
+      parseXml(edited.xml),
+      slide.index,
+      new Map(slide.rels),
+      slide.slidePath,
+      presentation.diagramDrawings,
+    );
+    materializeSlideNodes(presentation, updatedSlide);
+    const node = slideElementNodes(updatedSlide, presentation).find(
+      (entry) => entry.node.id === element.nodeId,
+    )?.node;
+    if (node?.nodeType !== 'shape') throw new Error('Missing PPTX text shape.');
     const background = parseXml(
       '<p:bg xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:bgPr><a:noFill/></p:bgPr></p:bg>',
     );

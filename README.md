@@ -550,9 +550,20 @@ presentation = refreshSlideParts(presentation, files, [0]);
 
 `embeddedImageParts` maps host element IDs to already embedded media part paths.
 Image acquisition, storage, revisions, and assembling the complete package remain
-host responsibilities. Existing opaque chart, table, and group objects carry
-`sourceXml`, `sourcePart`, and relationships so unmodified content survives edits
-and copying. Structural page changes still require `buildPresentation`.
+host responsibilities. Chart, table, and group objects carry `sourceXml`,
+`sourcePart`, and relationships so unmodified content survives edits and copying.
+Structural page changes still require `buildPresentation`.
+
+`readSlideElements` includes native group descendants in depth-first draw order,
+with each group followed by its children. Descendants carry `parentNodeId`; their
+geometry is in slide coordinates, including ancestor scaling, rotation, and flips.
+`editSlideElements` writes descendant edits back into the original group's child
+coordinate space without ungrouping them. Deleting a group also removes its
+nested descendants. Diagram/SmartArt content from separate parts remains opaque.
+Hosts should retain the complete projection when saving, filter descendants of
+selected groups when copying or transforming whole groups, and hide the matching
+rendered descendant (not its group) while editing text. The `onNodeRendered` hook
+includes descendants, whose model geometry is relative to their rendered parent.
 
 `renderEditableText` renders a text box or text-bearing shape as a transparent
 input overlay using the preview's native text layout. It does not mutate the

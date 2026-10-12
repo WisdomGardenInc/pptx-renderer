@@ -24,6 +24,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Fit replacement text inside its container and around overlapping artwork, with a wider
   character estimate for uppercase text.
 - Share group transforms between template analysis and text search so both report the same bounds.
+### Fixed
+
+- Expose native group descendants to projected element editors and support text overlays
+  inside nested groups. Save text and geometry back into the original group without
+  flattening its XML; share coordinate remapping with the renderer for scaled, rotated,
+  and flipped groups. Descendants carry `parentNodeId` and slide-space geometry.
 
 ## [1.5.0] - 2026-10-10
 

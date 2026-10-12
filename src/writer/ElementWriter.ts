@@ -7,6 +7,7 @@ import type {
   EditableTextRun,
 } from '../editor/EditableElement';
 import { resolvePartPath, sourceElement } from '../editor/parts';
+import { groupLocalElement, slideElementNodes } from '../editor/slideElementNodes';
 import { A, P, R, SP_PR_ORDER, RPR_CHILD_ORDER, ensureChild } from './xmlEdit';
 
 const PACKAGE_R = 'http://schemas.openxmlformats.org/package/2006/relationships';
@@ -485,6 +486,25 @@ export function editSlideElements(
   const rels = parseElement(relationshipsXml ?? `<Relationships xmlns="${PACKAGE_R}"/>`);
   const previousById = new Map(previous.map((element) => [element.id, element]));
   const content = elements;
+  const nodes = new Map(slideElementNodes(slide).map((entry) => [entry.node.id, entry]));
+  const sources = new Map(
+    previous.flatMap((element) => {
+      const source = element.nodeId ? sourceElement(slide, element.nodeId) : undefined;
+      return source ? [[element.id, source] as const] : [];
+    }),
+  );
+  const retainedIds = new Set(content.map((element) => element.id));
+  const removedNodeIds = new Set(
+    previous.filter((element) => !retainedIds.has(element.id)).map((element) => element.nodeId),
+  );
+  const hasRemovedParent = (id: string): boolean => {
+    let parent = nodes.get(id)?.parent;
+    while (parent) {
+      if (removedNodeIds.has(parent.id)) return true;
+      parent = nodes.get(parent.id)?.parent;
+    }
+    return false;
+  };
   const ids = new Map<string, string>();
   let nextId =
     Math.max(
@@ -499,7 +519,10 @@ export function editSlideElements(
   }
   for (const element of content) {
     const old = previousById.get(element.id);
-    let source = old?.nodeId ? sourceElement(slide, old.nodeId) : undefined;
+    if (old?.nodeId && hasRemovedParent(old.nodeId)) continue;
+    let source = sources.get(element.id);
+    const parent = source?.parentElement ?? tree;
+    const entry = old?.nodeId ? nodes.get(old.nodeId) : undefined;
     const created = !source;
     const cloned = created && !!element.sourceXml;
     const id = source ? nodeId(source)! : String(nextId++);
@@ -542,7 +565,10 @@ export function editSlideElements(
           old && 'flipV' in old ? old.flipV : false,
         ])
     )
-      patchGeometry(source, element);
+      patchGeometry(
+        source,
+        entry?.parent ? groupLocalElement(element, entry.node, entry.parent) : element,
+      );
     patchStyle(source, element, cloned ? element : old);
     if (element.locked !== old?.locked) {
       const names = (
@@ -570,7 +596,7 @@ export function editSlideElements(
       const id = addRelationship(rels, relativeTarget(slide.slidePath, path), `${R}/image`);
       ensure(ensure(source, 'blipFill', P), 'blip').setAttributeNS(R, 'r:embed', id);
     }
-    tree.insertBefore(source, child(tree, 'extLst') ?? null);
+    parent.insertBefore(source, child(parent, 'extLst') ?? null);
   }
   return {
     xml: new XMLSerializer().serializeToString(root),

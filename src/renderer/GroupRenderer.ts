@@ -13,36 +13,7 @@ import { SafeXmlNode } from '../parser/XmlParser';
 import { hexToRgb } from '../utils/color';
 import { resolveColor } from './StyleResolver';
 
-function shouldPropagateGroupFlip(node: BaseNodeData): boolean {
-  return node.nodeType !== 'table' && node.nodeType !== 'chart';
-}
-
-function rotationSwapsAxes(rotation: number): boolean {
-  const normalized = ((rotation % 360) + 360) % 360;
-  return Math.abs(normalized - 90) < 0.0001 || Math.abs(normalized - 270) < 0.0001;
-}
-
-function remapShapeTextBoxBounds(
-  node: BaseNodeData,
-  scaleX: number,
-  scaleY: number,
-  swapsAxes: boolean,
-): void {
-  if (node.nodeType !== 'shape') return;
-  const shapeNode = node as ShapeNodeData;
-  if (!shapeNode.textBoxBounds) return;
-
-  const tbScaleX = swapsAxes ? scaleY : scaleX;
-  const tbScaleY = swapsAxes ? scaleX : scaleY;
-  const tb = shapeNode.textBoxBounds;
-  shapeNode.textBoxBounds = {
-    ...tb,
-    x: tb.x * tbScaleX,
-    y: tb.y * tbScaleY,
-    w: tb.w * tbScaleX,
-    h: tb.h * tbScaleY,
-  };
-}
+import { remapGroupChild } from '../model/groupGeometry';
 
 function resolveEffectColor(node: SafeXmlNode, ctx: RenderContext, fallback: string): string {
   const { color, alpha } = resolveColor(node, ctx);
@@ -246,56 +217,7 @@ export function renderGroup(
       const childNode = parseByIndex(index);
       if (!childNode) continue;
 
-      // Remap child coordinates from child space to group space
-      if (chExt.w > 0 || chExt.h > 0) {
-        const scaleX = chExt.w > 0 ? groupW / chExt.w : 1;
-        const scaleY = chExt.h > 0 ? groupH / chExt.h : 1;
-        const swapsAxes = rotationSwapsAxes(childNode.rotation);
-        const originalPosition = childNode.position;
-        const originalSize = childNode.size;
-        if (swapsAxes) {
-          const rotatedBBoxX = originalPosition.x + (originalSize.w - originalSize.h) / 2;
-          const rotatedBBoxY = originalPosition.y + (originalSize.h - originalSize.w) / 2;
-          const nextSize = {
-            w: originalSize.w * scaleY,
-            h: originalSize.h * scaleX,
-          };
-          childNode.position = {
-            x: (rotatedBBoxX - chOff.x) * scaleX - (nextSize.w - nextSize.h) / 2,
-            y: (rotatedBBoxY - chOff.y) * scaleY - (nextSize.h - nextSize.w) / 2,
-          };
-          childNode.size = nextSize;
-        } else {
-          childNode.position = {
-            x: (originalPosition.x - chOff.x) * scaleX,
-            y: (originalPosition.y - chOff.y) * scaleY,
-          };
-          childNode.size = {
-            w: originalSize.w * scaleX,
-            h: originalSize.h * scaleY,
-          };
-        }
-        remapShapeTextBoxBounds(childNode, scaleX, scaleY, swapsAxes);
-      }
-
-      if (node.flipH) {
-        childNode.position = {
-          ...childNode.position,
-          x: groupW - childNode.position.x - childNode.size.w,
-        };
-        if (shouldPropagateGroupFlip(childNode)) {
-          childNode.flipH = !childNode.flipH;
-        }
-      }
-      if (node.flipV) {
-        childNode.position = {
-          ...childNode.position,
-          y: groupH - childNode.position.y - childNode.size.h,
-        };
-        if (shouldPropagateGroupFlip(childNode)) {
-          childNode.flipV = !childNode.flipV;
-        }
-      }
+      remapGroupChild(childNode, node);
 
       // Overlap the 3 pie sectors at the same center so they form one circle
       if (pieCommon && index < 3 && childNode.nodeType === 'shape') {

@@ -2,7 +2,7 @@
 import type { PresentationData } from '../model/Presentation';
 import type { SafeXmlNode } from '../parser/XmlParser';
 import type { ShapeNodeData } from '../model/nodes/ShapeNode';
-import type { SlideData, SlideNode } from '../model/Slide';
+import type { SlideData } from '../model/Slide';
 import type { ThemeData } from '../model/Theme';
 import type {
   EditableBullet,
@@ -11,6 +11,7 @@ import type {
   EditableElement,
 } from './EditableElement';
 import { sourceElement, resolvePartPath } from './parts';
+import { slideElementNodes } from './slideElementNodes';
 
 function slideTheme(presentation: PresentationData, slide: SlideData): ThemeData | undefined {
   const layout = presentation.slideToLayout.get(slide.index);
@@ -215,8 +216,9 @@ export function readSlideElements(
   slide: SlideData,
 ): EditableElement[] {
   const theme = slideTheme(presentation, slide);
-  return slide.nodes.map((node, index): EditableElement => {
+  return slideElementNodes(slide, presentation).map(({ node, parent }, index): EditableElement => {
     const id = node.id;
+    const source = sourceElement(slide, id);
     const lockNames = (
       {
         sp: ['nvSpPr', 'cNvSpPr', 'spLocks'],
@@ -231,10 +233,9 @@ export function readSlideElements(
     const base = {
       id,
       nodeId: node.id,
+      ...(parent ? { parentNodeId: parent.id } : {}),
       locked: locks?.attr('noMove') === '1' && locks?.attr('noResize') === '1',
-      sourceXml: sourceElement(slide, node.id)
-        ? new XMLSerializer().serializeToString(sourceElement(slide, node.id)!)
-        : undefined,
+      sourceXml: source ? new XMLSerializer().serializeToString(source) : undefined,
       sourcePart: slide.slidePath,
       relationships: Object.fromEntries(slide.rels),
       x: node.position.x,
@@ -291,7 +292,7 @@ export function readSlideElements(
 }
 
 export function imagePartPaths(slide: SlideData): string[] {
-  return slide.nodes.flatMap((node: SlideNode) => {
+  return slideElementNodes(slide).flatMap(({ node }) => {
     if (node.nodeType !== 'picture') return [];
     const rel = slide.rels.get(node.blipEmbed ?? '');
     return rel ? [resolvePartPath(slide.slidePath, rel.target)] : [];
