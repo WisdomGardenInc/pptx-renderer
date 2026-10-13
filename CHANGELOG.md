@@ -7,6 +7,26 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-13
+
+### Added
+
+- Opt into `copyStyle: 'snapshot'` to materialize editable text, shape and image styles when
+  copying source XML, while retaining native styles by default.
+- Read and write rectangle corner radii, line caps, opacity, dash styles and independently sized
+  line endpoints through editable shape values.
+- Export reusable shape geometry and paint writers, shape creation, polygon rounding and filled
+  line/endpoint geometry helpers for framework-free editors.
+
+### Fixed
+
+- Expose native group descendants to projected element editors and support text overlays
+  inside nested groups. Save text and geometry back into the original group without
+  flattening its XML; share coordinate remapping with the renderer for scaled, rotated,
+  and flipped groups. Descendants carry `parentNodeId` and slide-space geometry.
+- Normalize copied relationship prefixes so image and chart copies serialize as valid XML.
+- Avoid one-pixel text-box growth caused by subpixel measurement noise.
+
 ## [1.6.0] - 2026-10-10
 
 ### Added
@@ -24,12 +44,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Fit replacement text inside its container and around overlapping artwork, with a wider
   character estimate for uppercase text.
 - Share group transforms between template analysis and text search so both report the same bounds.
-### Fixed
-
-- Expose native group descendants to projected element editors and support text overlays
-  inside nested groups. Save text and geometry back into the original group without
-  flattening its XML; share coordinate remapping with the renderer for scaled, rotated,
-  and flipped groups. Descendants carry `parentNodeId` and slide-space geometry.
 
 ## [1.5.0] - 2026-10-10
 

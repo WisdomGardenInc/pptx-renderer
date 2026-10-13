@@ -554,6 +554,20 @@ host responsibilities. Chart, table, and group objects carry `sourceXml`,
 `sourcePart`, and relationships so unmodified content survives edits and copying.
 Structural page changes still require `buildPresentation`.
 
+Copies preserve their native source XML styles by default (`copyStyle: 'source'`).
+Set `copyStyle: 'snapshot'` on a new host element with `sourceXml` to materialize its
+editable text, supported shape styles, image opacity and crop instead. Supply a
+new `id`; native node IDs and relationships are remapped by the writer.
+
+Editable shapes also expose `cornerRadius` (pixels), `lineCap`, `headEnd` and
+`tailEnd`, including independent endpoint `w`/`len` sizes. For lower-level XML
+authoring, `createShapeElement`, `writeShapeGeometry` and `writeShapePaint` create
+or update native shapes without rebuilding a deck. Geometry accepts presets or
+custom paths in pixels, with arc angles in degrees; paint accepts solid colors,
+alpha, stroke widths, caps, joins, dashes and endpoints. `polygonCommands`,
+`roundedPolygonCommands`, `createLineEndpointGeometry`, `insetLineSegment` and
+`createFilledLineGeometry` provide reusable geometry building blocks.
+
 `readSlideElements` includes native group descendants in depth-first draw order,
 with each group followed by its children. Descendants carry `parentNodeId`; their
 geometry is in slide coordinates, including ancestor scaling, rotation, and flips.
