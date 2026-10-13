@@ -17,7 +17,8 @@ function fittedDimension(
     ? computedSize
     : root[axis === 'width' ? 'offsetWidth' : 'offsetHeight'];
   if (measured <= 0) return current;
-  const fitted = shape + Math.ceil(measured - text);
+  const delta = measured - text;
+  const fitted = shape + (Math.abs(delta) < 1 / 64 ? 0 : Math.ceil(delta));
   return fitContent ? Math.max(1, fitted) : Math.max(current, fitted);
 }
 

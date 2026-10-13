@@ -140,6 +140,135 @@ describe('framework-free element editing', () => {
     expect(Number(nodeId)).toBeGreaterThan(2);
   });
 
+  it('materializes an explicitly requested copy snapshot without altering source styles or extensions', () => {
+    const { files, presentation, slide } = fixture();
+    const before = readSlideElements(presentation, slide);
+    const copy = structuredClone(before[0]);
+    copy.id = 'snapshot-copy';
+    copy.nodeId = undefined;
+    copy.copyStyle = 'snapshot';
+    copy.x += 20;
+    copy.paragraphs![0].runs[0] = {
+      ...copy.paragraphs![0].runs[0],
+      text: 'Snapshot',
+      color: '#445566',
+      fontName: 'Georgia',
+      fontSize: 32,
+      italic: true,
+    };
+    copy.wrap = 'none';
+    copy.vAlign = 'bottom';
+    copy.bodyPadding = { l: 1, r: 2, t: 3, b: 4 };
+    const result = editSlideElements(slide, [...before, copy], before, null, new Map());
+    files.slides.set(slide.slidePath, result.xml);
+    const refreshed = refreshSlideParts(presentation, files, [0]);
+    const after = readSlideElements(refreshed, refreshed.slides[0]);
+    expect(after[0].paragraphs![0].runs[0].text).toBe('Hello');
+    expect(after[1].paragraphs![0].runs[0]).toMatchObject(copy.paragraphs![0].runs[0]);
+    expect(after[1]).toMatchObject({
+      wrap: 'none',
+      vAlign: 'bottom',
+      bodyPadding: copy.bodyPadding,
+    });
+    expect(after[1].sourceXml).toContain('rad="123"');
+    expect(after[1].sourceXml).toContain('lang="zh-CN"');
+    expect(after[1].nodeId).not.toBe(after[0].nodeId);
+  });
+
+  it('retains original source XML style when snapshot materialization is not requested', () => {
+    const { presentation, slide } = fixture();
+    const before = readSlideElements(presentation, slide);
+    const copy = structuredClone(before[0]);
+    copy.id = 'source-copy';
+    copy.nodeId = undefined;
+    copy.paragraphs![0].runs[0].text = 'Not materialized';
+    const result = editSlideElements(slide, [...before, copy], before, null, new Map());
+    expect(result.xml).not.toContain('Not materialized');
+    expect(result.xml.match(/<a:t>Hello<\/a:t>/g)).toHaveLength(2);
+  });
+
+  it('copies images and charts with inherited relationship prefixes into valid XML', () => {
+    const { files, presentation, slide } = fixture();
+    const chart = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="952500" cy="952500"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="chart"/></a:graphicData></a:graphic></p:graphicFrame>`;
+    files.slides.set(slide.slidePath, xml.replace('</p:spTree>', `${chart}</p:spTree>`));
+    const chartRels = `<Relationships xmlns="${PKG}"><Relationship Id="chart" Type="${R}/chart" Target="../charts/chart1.xml"/></Relationships>`;
+    files.slideRels.set(relationshipsPart(slide.slidePath), chartRels);
+    const withChart = refreshSlideParts(presentation, files, [0]);
+    const before = readSlideElements(withChart, withChart.slides[0]);
+    const picture = {
+      id: 'picture',
+      type: 'image' as const,
+      x: 10,
+      y: 20,
+      width: 100,
+      height: 50,
+      imageKey: 'picture',
+      mediaPath: 'ppt/media/picture.png',
+      opacity: 0.5,
+      picCrop: { l: 0.1 },
+    };
+    const added = editSlideElements(
+      withChart.slides[0],
+      [...before, picture],
+      before,
+      chartRels,
+      new Map([[picture.id, picture.mediaPath]]),
+    );
+    files.slides.set(slide.slidePath, added.xml);
+    files.slideRels.set(relationshipsPart(slide.slidePath), added.relsXml!);
+    const baseline = refreshSlideParts(withChart, files, [0]);
+    const originals = readSlideElements(baseline, baseline.slides[0]);
+    const copies = originals.map((element) => ({
+      ...structuredClone(element),
+      id: `copy-${element.id}`,
+      nodeId: undefined,
+      copyStyle: 'snapshot' as const,
+    }));
+    const copiedPicture = copies.find((element) => element.type === 'image')!;
+    copiedPicture.opacity = 0.4;
+    copiedPicture.picCrop = { l: 0.2 };
+    const result = editSlideElements(
+      baseline.slides[0],
+      [...originals, ...copies],
+      originals,
+      added.relsXml,
+      new Map(),
+    );
+    expect(
+      new DOMParser()
+        .parseFromString(result.xml, 'application/xml')
+        .getElementsByTagName('parsererror'),
+    ).toHaveLength(0);
+    files.slides.set(slide.slidePath, result.xml);
+    files.slideRels.set(relationshipsPart(slide.slidePath), result.relsXml!);
+    const refreshed = refreshSlideParts(baseline, files, [0]);
+    const after = readSlideElements(refreshed, refreshed.slides[0]);
+    expect(after).toHaveLength(originals.length * 2);
+    expect(after.filter((element) => element.type === 'chart')).toHaveLength(2);
+    expect(after.at(-1)).toMatchObject({
+      opacity: 0.4,
+      picCrop: { l: 0.2, r: 0, t: 0, b: 0 },
+      mediaPath: picture.mediaPath,
+    });
+    expect(after.find((element) => element.nodeId === originals.at(-1)?.nodeId)?.opacity).toBe(0.5);
+    const destination = baseline.slides[1];
+    const destinationBefore = readSlideElements(baseline, destination);
+    const across = editSlideElements(
+      destination,
+      [...destinationBefore, ...copies],
+      destinationBefore,
+      null,
+      new Map(),
+    );
+    expect(
+      new DOMParser()
+        .parseFromString(across.xml, 'application/xml')
+        .getElementsByTagName('parsererror'),
+    ).toHaveLength(0);
+    expect(across.relsXml).toContain('../charts/chart1.xml');
+    expect(across.relsXml).toContain('../media/picture.png');
+  });
+
   it('refreshes layout mappings and rejects invalid indices before publishing a model', () => {
     const { files, presentation, slide } = fixture();
     files.slideRels.set(

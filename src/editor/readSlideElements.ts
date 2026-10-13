@@ -12,6 +12,7 @@ import type {
 } from './EditableElement';
 import { sourceElement, resolvePartPath } from './parts';
 import { slideElementNodes } from './slideElementNodes';
+import { readShapeEditingStyle } from './shapeEditingStyle';
 
 function slideTheme(presentation: PresentationData, slide: SlideData): ThemeData | undefined {
   const layout = presentation.slideToLayout.get(slide.index);
@@ -255,6 +256,7 @@ export function readSlideElements(
       const fontScale = body?.child('normAutofit').numAttr('fontScale');
       return {
         ...base,
+        ...readShapeEditingStyle(node.source.child('spPr'), node.size.w, node.size.h),
         type: node.source.child('nvSpPr').child('cNvSpPr').attr('txBox') === '1' ? 'text' : 'shape',
         paragraphs: text,
         shapeType: node.presetGeometry ?? 'rect',

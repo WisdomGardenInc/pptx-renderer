@@ -147,6 +147,37 @@ export type {
   EditableParagraph,
   EditableTextRun,
   EditableBullet,
+  EditableLineEnd,
 } from './editor/EditableElement';
+export {
+  createLineEndpointGeometry,
+  createFilledLineGeometry,
+  insetLineSegment,
+  openArrowheadPoints,
+  polygonCommands,
+  roundedPolygonCommands,
+  shapeCommandsToSvgPath,
+} from './shapes/editingGeometry';
+export type {
+  ShapePoint,
+  ShapePathCommand,
+  ShapeArcCommand,
+  ShapeGeometryCommand,
+  CustomShapePath,
+  CustomShapeGeometry,
+  LineEndpointShape,
+  LineEndpointGeometry,
+  LineEndpointDimensions,
+  LineSegmentGeometry,
+  FilledLineOptions,
+} from './shapes/editingGeometry';
+export { createShapeElement, writeShapeGeometry } from './writer/shapeGeometry';
+export type {
+  ShapeGeometry,
+  ShapeGeometryOptions,
+  ShapeElementOptions,
+} from './writer/shapeGeometry';
+export { writeShapePaint } from './writer/shapePaint';
+export type { ShapePaint, ShapeFillPaint, ShapeStrokePaint } from './writer/shapePaint';
 export { refreshSlideParts } from './editor/refreshSlideParts';
 export { waitForSlideImages } from './renderer/slideImages';

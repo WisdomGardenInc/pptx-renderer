@@ -39,6 +39,12 @@ export interface EditableParagraph {
   bullet?: EditableBullet | null;
 }
 
+export interface EditableLineEnd {
+  type: 'none' | 'triangle' | 'arrow' | 'stealth' | 'diamond' | 'oval';
+  w?: 'sm' | 'med' | 'lg';
+  len?: 'sm' | 'med' | 'lg';
+}
+
 export interface EditableElement {
   /** Opaque identity supplied by the embedding editor. */
   id: string;
@@ -46,6 +52,7 @@ export interface EditableElement {
   nodeId?: string;
   parentNodeId?: string;
   sourceXml?: string;
+  copyStyle?: 'source' | 'snapshot';
   sourcePart?: string;
   relationships?: Record<string, { type: string; target: string; targetMode?: string }>;
   mediaPath?: string;
@@ -67,6 +74,10 @@ export interface EditableElement {
   strokeAlpha?: number | null;
   strokeWidth?: number | null;
   strokeDash?: 'solid' | 'dashed' | 'dotted' | 'dashdot';
+  cornerRadius?: number | null;
+  lineCap?: 'flat' | 'rnd' | 'sq';
+  headEnd?: EditableLineEnd | null;
+  tailEnd?: EditableLineEnd | null;
   wrap?: string | null;
   vert?: string | null;
   vAlign?: 'top' | 'middle' | 'bottom';

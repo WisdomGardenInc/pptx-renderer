@@ -69,6 +69,21 @@ export const RPR_CHILD_ORDER = [
   'extLst',
 ] as const;
 
+export function ensureShapeProperties(source: Element): Element {
+  if (source.namespaceURI !== P || !['sp', 'cxnSp', 'pic'].includes(source.localName))
+    throw new TypeError('Expected a presentation shape element.');
+  return ensureChild(source, P, 'p:spPr', [
+    'nvSpPr',
+    'nvCxnSpPr',
+    'nvPicPr',
+    'blipFill',
+    'spPr',
+    'style',
+    'txBody',
+    'extLst',
+  ]);
+}
+
 export const FILL_LOCAL_NAMES = [
   'noFill',
   'solidFill',

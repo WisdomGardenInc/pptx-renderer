@@ -9,10 +9,15 @@ import type {
 import { resolvePartPath, sourceElement } from '../editor/parts';
 import { groupLocalElement, slideElementNodes } from '../editor/slideElementNodes';
 import { A, P, R, SP_PR_ORDER, RPR_CHILD_ORDER, ensureChild } from './xmlEdit';
+import { copiedStyleBaseline, normalizeCopiedRelationships } from './copiedElement';
+import { LINE_STYLE_ORDER, patchShapeEditingStyle } from './shapeEditingStyle';
+import { setFillColor as setColor } from './shapePaint';
+import { createShapeElement } from './shapeGeometry';
 
 const PACKAGE_R = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const ORDER: Record<string, readonly string[]> = {
   spPr: SP_PR_ORDER,
+  ln: LINE_STYLE_ORDER,
   xfrm: ['off', 'ext', 'chOff', 'chExt'],
   pPr: [
     'lnSpc',
@@ -63,24 +68,6 @@ function setAttribute(
 
 function nodeId(element: Element): string | null {
   return element.getElementsByTagNameNS(P, 'cNvPr')[0]?.getAttribute('id') ?? null;
-}
-
-function setColor(parent: Element, color: string | null | undefined, alpha?: number | null): void {
-  for (const element of Array.from(parent.children)) {
-    if (
-      ['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill'].includes(
-        element.localName,
-      )
-    )
-      element.remove();
-  }
-  const fill = ensure(parent, color ? 'solidFill' : 'noFill');
-  if (color) {
-    const rgb = ensure(fill, 'srgbClr');
-    rgb.setAttribute('val', color.replace(/^#/, ''));
-    if (alpha != null && alpha < 1)
-      ensure(rgb, 'alpha').setAttribute('val', String(Math.round(alpha * 100000)));
-  }
 }
 
 function patchGeometry(source: Element, element: EditableElement): void {
@@ -394,7 +381,9 @@ function patchStyle(
 
 function newShape(document: Document, element: EditableElement, id: string): Element {
   const isImage = element.type === 'image';
-  const source = document.createElementNS(P, isImage ? 'p:pic' : 'p:sp');
+  const source = isImage
+    ? document.createElementNS(P, 'p:pic')
+    : createShapeElement(document, { id, name: 'Text', preset: element.shapeType ?? 'rect' });
   const nv = ensure(source, isImage ? 'nvPicPr' : 'nvSpPr', P);
   const properties = ensure(nv, 'cNvPr', P);
   properties.setAttribute('id', id);
@@ -530,6 +519,7 @@ export function editSlideElements(
       source = element.sourceXml
         ? (root.ownerDocument.importNode(parseElement(element.sourceXml), true) as Element)
         : newShape(root.ownerDocument, element, id);
+      normalizeCopiedRelationships(source);
       const copiedIds = new Map<string, string>();
       Array.from(source.getElementsByTagNameNS(P, 'cNvPr')).forEach((properties, index) => {
         const replacement = index === 0 ? id : String(nextId++);
@@ -569,7 +559,9 @@ export function editSlideElements(
         source,
         entry?.parent ? groupLocalElement(element, entry.node, entry.parent) : element,
       );
-    patchStyle(source, element, cloned ? element : old);
+    const styleBaseline = cloned ? copiedStyleBaseline(element) : old;
+    patchStyle(source, element, styleBaseline);
+    patchShapeEditingStyle(source, element, styleBaseline);
     if (element.locked !== old?.locked) {
       const names = (
         {
