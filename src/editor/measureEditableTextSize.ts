@@ -1,4 +1,4 @@
-interface TextSize {
+export interface TextSize {
   width: number;
   height: number;
 }
@@ -55,15 +55,14 @@ export function measureEditableTextSize(
   };
 }
 
-export function measureEditableTextContentSize(
+export function measureTextContentSize(
   root: HTMLElement,
-  current: TextSize,
   shape: TextSize,
   text: TextSize,
   wrap: boolean,
 ): TextSize {
   if (!root.isConnected || root.style.writingMode)
-    return { width: current.width, height: current.height };
+    return { width: shape.width, height: shape.height };
   const copy = root.cloneNode(true) as HTMLElement;
   copy.removeAttribute('contenteditable');
   copy.removeAttribute('id');
@@ -89,7 +88,7 @@ export function measureEditableTextContentSize(
   });
   root.ownerDocument.body.appendChild(copy);
   try {
-    return measureEditableTextSize(copy, current, shape, text, true);
+    return measureEditableTextSize(copy, shape, shape, text, true);
   } finally {
     copy.remove();
   }

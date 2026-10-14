@@ -13,7 +13,6 @@ import type {
 import { sourceElement, resolvePartPath } from './parts';
 import { slideElementNodes } from './slideElementNodes';
 import { readTextLayout } from './textLayout';
-import { getEffectiveBodyPrChild, parseTextPercentage } from '../renderer/TextBodyProperties';
 import { createRenderContext } from '../renderer/RenderContext';
 import type { RenderContext } from '../renderer/RenderContext';
 import { resolveColor } from '../renderer/StyleResolver';
@@ -269,9 +268,7 @@ export function readSlideElements(
     if (node.nodeType === 'shape') {
       const text = paragraphs(node, presentation, slide);
       const body = node.textBody?.bodyProperties;
-      const fontScale = parseTextPercentage(
-        getEffectiveBodyPrChild(node.textBody, 'normAutofit')?.attr('fontScale'),
-      );
+      const layout = readTextLayout(node.textBody);
       return {
         ...base,
         ...readShapeEditingStyle(node.source.child('spPr'), node.size.w, node.size.h),
@@ -283,10 +280,11 @@ export function readSlideElements(
         strokeWidth: (node.line?.numAttr('w') ?? 0) / 9525,
         vAlign:
           ({ t: 'top', ctr: 'middle', b: 'bottom' } as const)[body?.attr('anchor') as 't'] ?? 'top',
-        autoFit: readTextLayout(node.textBody).autoFit,
+        autoFit: layout.autoFit,
         wrap: body?.attr('wrap') ?? node.textBody?.layoutBodyProperties?.attr('wrap'),
         vert: body?.attr('vert'),
-        fontScale: fontScale ?? null,
+        fontScale: layout.fontScale,
+        lineSpaceReduction: layout.lineSpaceReduction,
         bodyPadding: {
           l: (body?.numAttr('lIns') ?? 91440) / 9525,
           r: (body?.numAttr('rIns') ?? 91440) / 9525,

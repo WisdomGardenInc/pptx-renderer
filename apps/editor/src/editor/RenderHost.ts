@@ -5,6 +5,7 @@ import {
   serializeSlide,
   applyTextLayout,
   readTextLayout,
+  measureTextContentSize,
   type TextLayoutPatch,
   type SerializedSlidePart,
   type PresentationData,
@@ -452,22 +453,20 @@ export class RenderHost {
     document.body.appendChild(container);
     try {
       const text = container.querySelector<HTMLElement>('[data-pptx-text]');
-      if (!text || text.style.height !== 'auto') return;
-      text.style.minHeight = '0px';
-      if (text.style.width === 'max-content') text.style.minWidth = '0px';
-      const computed = getComputedStyle(text);
-      const measured = {
-        width: Number.parseFloat(computed.width),
-        height: Number.parseFloat(computed.height),
-      };
+      if (!text) return;
       const bounds = shape.textBoxBounds;
-      shape.size.h = Math.max(1, shape.size.h + measured.height - (bounds?.h ?? shape.size.h));
-      if (text.style.width === 'max-content')
-        shape.size.w = Math.max(1, shape.size.w + measured.width - (bounds?.w ?? shape.size.w));
+      const measured = measureTextContentSize(
+        text,
+        { width: shape.size.w, height: shape.size.h },
+        { width: bounds?.w ?? shape.size.w, height: bounds?.h ?? shape.size.h },
+        readTextLayout(shape.textBody).wrap,
+      );
       if (bounds) {
-        bounds.h = measured.height;
-        if (text.style.width === 'max-content') bounds.w = measured.width;
+        bounds.h += measured.height - shape.size.h;
+        bounds.w += measured.width - shape.size.w;
       }
+      shape.size.w = measured.width;
+      shape.size.h = measured.height;
     } finally {
       handle.dispose();
       container.remove();

@@ -25,14 +25,52 @@ describe('editable text layout', () => {
     shape.textBody!.layoutBodyProperties = parseXml(
       '<a:bodyPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" wrap="none"><a:normAutofit fontScale="80%"/></a:bodyPr>',
     );
-    expect(readTextLayout(shape.textBody)).toEqual({ autoFit: 'shrink', wrap: false });
+    expect(readTextLayout(shape.textBody)).toEqual({
+      autoFit: 'shrink',
+      wrap: false,
+      fontScale: 0.8,
+      lineSpaceReduction: null,
+    });
     applyTextLayout(shape, { autoFit: 'none' });
-    expect(readTextLayout(shape.textBody)).toEqual({ autoFit: 'none', wrap: false });
+    expect(readTextLayout(shape.textBody)).toEqual({
+      autoFit: 'none',
+      wrap: false,
+      fontScale: null,
+      lineSpaceReduction: null,
+    });
     applyTextLayout(shape, { wrap: true });
-    expect(readTextLayout(shape.textBody)).toEqual({ autoFit: 'none', wrap: true });
+    expect(readTextLayout(shape.textBody)).toEqual({
+      autoFit: 'none',
+      wrap: true,
+      fontScale: null,
+      lineSpaceReduction: null,
+    });
     applyTextLayout(shape, { autoFit: null });
     expect(readTextLayout(shape.textBody).autoFit).toBe('shrink');
-    expect(readTextLayout(undefined)).toEqual({ autoFit: null, wrap: true });
+    expect(readTextLayout(undefined)).toEqual({
+      autoFit: null,
+      wrap: true,
+      fontScale: null,
+      lineSpaceReduction: null,
+    });
+  });
+
+  it('reads inherited shrink metrics and preserves explicit zero values', () => {
+    const body = {
+      paragraphs: [],
+      bodyProperties: parseXml(
+        '<a:bodyPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>',
+      ),
+      layoutBodyProperties: parseXml(
+        '<a:bodyPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:normAutofit fontScale=" 80% " lnSpcReduction="0"/></a:bodyPr>',
+      ),
+    };
+    expect(readTextLayout(body)).toEqual({
+      autoFit: 'shrink',
+      wrap: true,
+      fontScale: 0.8,
+      lineSpaceReduction: 0,
+    });
   });
 
   for (const [mode, tag] of modes) {
@@ -118,5 +156,38 @@ describe('editable text layout', () => {
       .child('txBody')
       .child('bodyPr');
     expect(properties.child('spAutoFit').exists()).toBe(true);
+  });
+
+  it('preserves authored shrink metrics when copying a text snapshot', () => {
+    const { presentation, slide } = createEditableTextFixture(
+      '<a:bodyPr><a:normAutofit fontScale="80000" lnSpcReduction="20000"/></a:bodyPr>',
+    );
+    const previous = readSlideElements(presentation, slide);
+    const copy = { ...previous[0], id: 'copy', nodeId: undefined, copyStyle: 'snapshot' as const };
+    const part = editSlideElements(slide, [...previous, copy], previous, null, new Map());
+    const fit = parseXml(part.xml)
+      .child('cSld')
+      .child('spTree')
+      .children('sp')
+      .at(-1)!
+      .child('txBody')
+      .child('bodyPr')
+      .child('normAutofit');
+    expect(fit.attr('fontScale')).toBe('80000');
+    expect(fit.attr('lnSpcReduction')).toBe('20000');
+  });
+
+  it('clears font scaling while preserving line spacing and the selected mode', () => {
+    const { presentation, slide } = createEditableTextFixture(
+      '<a:bodyPr><a:normAutofit fontScale="80000" lnSpcReduction="20000"/></a:bodyPr>',
+    );
+    const previous = readSlideElements(presentation, slide);
+    const next = structuredClone(previous);
+    next[0].fontScale = null;
+    const properties = bodyPr(editSlideElements(slide, next, previous, null, new Map()).xml);
+    expect(properties.child('normAutofit').exists()).toBe(true);
+    expect(properties.child('normAutofit').attr('fontScale')).toBeUndefined();
+    expect(properties.child('normAutofit').attr('lnSpcReduction')).toBe('20000');
+    expect(previous[0].fontScale).toBe(0.8);
   });
 });

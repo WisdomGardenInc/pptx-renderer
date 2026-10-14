@@ -125,10 +125,15 @@ export type { SerializedSlidePart } from './writer/SlideWriter';
 export { editSlideElements } from './writer/ElementWriter';
 export { readSlideElements, imagePartPaths } from './editor/readSlideElements';
 export { applyTextLayout, readTextLayout } from './editor/textLayout';
-export type { TextAutoFit, TextLayout, TextLayoutPatch } from './editor/textLayout';
+export type { TextAutoFit, TextFitMetrics, TextLayout, TextLayoutPatch } from './editor/textLayout';
+export { fitSlideText } from './editor/fitSlideText';
+export type { FitSlideTextOptions } from './editor/fitSlideText';
+export { measureTextContentSize } from './editor/measureEditableTextSize';
+export type { TextSize } from './editor/measureEditableTextSize';
 export { renderEditableText } from './editor/renderEditableText';
 export type {
   EditableTextContext,
+  EditableTextExtractOptions,
   EditableTextHandle,
   EditableTextOptions,
 } from './editor/renderEditableText';

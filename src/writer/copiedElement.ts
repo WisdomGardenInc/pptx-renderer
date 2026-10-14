@@ -23,6 +23,8 @@ export function copiedStyleBaseline(element: EditableElement): EditableElement {
     paragraphs: undefined,
     vAlign: undefined,
     autoFit: undefined,
+    fontScale: undefined,
+    lineSpaceReduction: undefined,
     wrap: undefined,
     bodyPadding: undefined,
     opacity: undefined,

@@ -9,7 +9,7 @@ import { editSlideElements } from '../writer/ElementWriter';
 import type { EditableElement } from './EditableElement';
 import { slideElementNodes } from './slideElementNodes';
 import { readSlideElements } from './readSlideElements';
-import { measureEditableTextContentSize, measureEditableTextSize } from './measureEditableTextSize';
+import { measureTextContentSize, measureEditableTextSize } from './measureEditableTextSize';
 import { readTextLayout } from './textLayout';
 import {
   createEditableTextRange,
@@ -24,10 +24,14 @@ export interface EditableTextHandle {
   /** Stable input root, retained by update() so listeners and IME ownership survive. */
   readonly textElement: HTMLDivElement;
   readonly ready: Promise<void>;
-  extract(element?: EditableElement): EditableElement;
+  extract(element?: EditableElement, options?: EditableTextExtractOptions): EditableElement;
   /** Apply model text/geometry without mutating the presentation or slide XML. */
   update(element: EditableElement, context?: EditableTextContext): void;
   dispose(): void;
+}
+
+export interface EditableTextExtractOptions {
+  readonly fitToContent?: boolean;
 }
 
 export interface EditableTextContext {
@@ -89,6 +93,7 @@ export function renderEditableText(
   let renderedTextSize = { ...renderedSize };
   let fitContent = false;
   let resizeToContent = false;
+  let fixedFrame = false;
   let resizeContentChanged = false;
   let wrapsText = true;
   let disposed = false;
@@ -178,6 +183,9 @@ export function renderEditableText(
     const root = text;
     const layout = readTextLayout(node.textBody);
     resizeToContent = options.editableTextAutoFit === true && layout.autoFit === 'resize';
+    fixedFrame =
+      options.editableTextAutoFit === true &&
+      (layout.autoFit === 'none' || layout.autoFit === 'shrink');
     wrapsText = layout.wrap;
     if (element.nodeId !== renderedElement.nodeId) {
       fitContent = false;
@@ -259,17 +267,20 @@ export function renderEditableText(
     get ready() {
       return view!.ready;
     },
-    extract(element = renderedElement) {
+    extract(element = renderedElement, extraction = {}) {
       if (disposed) throw new Error('The editable text handle has been disposed.');
       const root = input!;
       const paragraphs = extractEditableText(root, element.paragraphs ?? []);
       if (textWasReduced({ ...element, paragraphs }, renderedElement)) fitContent = true;
       if (JSON.stringify(paragraphs) !== JSON.stringify(renderedElement.paragraphs))
         resizeContentChanged = true;
-      const size =
-        resizeToContent && resizeContentChanged
-          ? measureEditableTextContentSize(root, element, renderedSize, renderedTextSize, wrapsText)
+      const shouldFitContent = resizeToContent && (resizeContentChanged || extraction.fitToContent);
+      let size = { width: element.width, height: element.height };
+      if (!fixedFrame && root.isConnected) {
+        size = shouldFitContent
+          ? measureTextContentSize(root, renderedSize, renderedTextSize, wrapsText)
           : measureEditableTextSize(root, element, renderedSize, renderedTextSize, fitContent);
+      }
       return { ...element, ...size, paragraphs };
     },
     update,

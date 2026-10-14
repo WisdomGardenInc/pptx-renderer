@@ -86,6 +86,7 @@ export interface EditableElement {
   vAlign?: 'top' | 'middle' | 'bottom';
   bodyPadding?: { l: number; r: number; t: number; b: number } | null;
   fontScale?: number | null;
+  lineSpaceReduction?: number | null;
   opacity?: number;
   picCrop?: { l?: number; r?: number; t?: number; b?: number } | null;
   zOrder?: number;
