@@ -209,6 +209,11 @@ export function syncText(shape: ShapeNodeData): void {
   if (!txBody) return;
   const doc = el.ownerDocument;
 
+  const bodyProperties = shape.textBody.bodyProperties?.element;
+  if (bodyProperties) {
+    insertOrdered(txBody, bodyProperties, ['bodyPr', 'lstStyle', 'p']);
+  }
+
   const paras = shape.textBody.paragraphs;
 
   const parsed: Element[] = [];

@@ -2875,11 +2875,8 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
       renderTextBody(textBody, node.placeholder, ctx, textContainer, textOptions);
       wrapper.appendChild(textContainer);
 
-      // Active horizontal inputs need space for new paragraphs, not a smaller font.
-      // Keep the original box as the minimum so alignment/insets still match when
-      // content fits; auto height also responds to browser edits before a model update.
-      // Stored normAutofit fontScale remains applied by renderTextBody above.
-      if (ctx.editableText && !isVerticalText) {
+      const fitEditableTextToShape = ctx.editableText && ctx.editableTextAutoFit;
+      if (ctx.editableText && !isVerticalText && !fitEditableTextToShape) {
         textContainer.style.height = 'auto';
         textContainer.style.minHeight = `${node.textBoxBounds?.h ?? node.size.h}px`;
         if (textWrap === 'none') {
@@ -2900,7 +2897,10 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
         const baseHeight = textContainer.style.height;
         const baseWhiteSpace = textContainer.style.whiteSpace;
         const baseOverflowY = textContainer.style.overflowY;
+        let fitScheduled = false;
         const applyDynamicAutofit = () => {
+          fitScheduled = false;
+          if (ctx.signal?.aborted) return;
           delete textContainer.dataset.pptxFitScale;
           textContainer.style.transform = baseTransform;
           textContainer.style.transformOrigin = baseTransformOrigin;
@@ -3094,6 +3094,8 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
         };
 
         const scheduleDynamicAutofit = () => {
+          if (fitScheduled || ctx.signal?.aborted) return;
+          fitScheduled = true;
           if (typeof requestAnimationFrame === 'function') {
             requestAnimationFrame(() => requestAnimationFrame(applyDynamicAutofit));
           } else {
@@ -3101,6 +3103,20 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
           }
         };
 
+        if (fitEditableTextToShape) {
+          const Observer = textContainer.ownerDocument.defaultView?.MutationObserver;
+          const observer = Observer ? new Observer(scheduleDynamicAutofit) : undefined;
+          observer?.observe(textContainer, { childList: true, subtree: true, characterData: true });
+          textContainer.addEventListener('input', scheduleDynamicAutofit);
+          ctx.signal?.addEventListener(
+            'abort',
+            () => {
+              observer?.disconnect();
+              textContainer.removeEventListener('input', scheduleDynamicAutofit);
+            },
+            { once: true },
+          );
+        }
         applyDynamicAutofit();
         scheduleDynamicAutofit();
         if (document.fonts?.status === 'loading' && document.fonts.ready) {

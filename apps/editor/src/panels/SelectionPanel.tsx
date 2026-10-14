@@ -1,3 +1,4 @@
+import { readTextLayout, type ShapeNodeData } from '@wisdomgarden/pptx-renderer';
 import type { RenderHost, RenderHostState } from '../editor/RenderHost';
 import { readFillColor, readTextStyle } from '../editor/StyleFacade';
 
@@ -38,15 +39,9 @@ export function SelectionPanel({ host, state }: Props) {
   );
 }
 
-function ShapeStyleControls({
-  host,
-  shape,
-}: {
-  host: RenderHost;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  shape: any;
-}) {
+function ShapeStyleControls({ host, shape }: { host: RenderHost; shape: ShapeNodeData }) {
   const text = readTextStyle(shape);
+  const layout = readTextLayout(shape.textBody);
   const fill = readFillColor(shape);
 
   return (
@@ -117,6 +112,35 @@ function ShapeStyleControls({
           </button>
         </div>
       </div>
+      <fieldset className="text-layout">
+        <legend>文字自动调整</legend>
+        {(
+          [
+            ['none', '不自动调整'],
+            ['shrink', '溢出时缩排文字'],
+            ['resize', '根据文字调整形状大小'],
+          ] as const
+        ).map(([mode, label]) => (
+          <label key={mode} className="text-layout-option">
+            <input
+              type="radio"
+              name="text-auto-fit"
+              value={mode}
+              checked={(layout.autoFit ?? 'none') === mode}
+              onChange={() => host.applyTextLayout({ autoFit: mode })}
+            />
+            {label}
+          </label>
+        ))}
+        <label className="text-layout-option">
+          <input
+            type="checkbox"
+            checked={layout.wrap}
+            onChange={(e) => host.applyTextLayout({ wrap: e.target.checked })}
+          />
+          形状中的文字自动换行
+        </label>
+      </fieldset>
       <p className="hint">
         Or double-click the element to edit text. Press Enter to apply, Esc to cancel.
       </p>

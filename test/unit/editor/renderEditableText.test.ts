@@ -9,6 +9,76 @@ import {
 } from '../../../src/editor/editableTextDom';
 
 describe('renderEditableText', () => {
+  it('keeps typed spaces consistent with preview without moving a backward selection', () => {
+    const { presentation, slide, element } = fixture();
+    const edit = renderEditableText(presentation, slide, element, { editableTextAutoFit: true });
+    document.body.append(edit.element);
+    try {
+      const root = edit.textElement;
+      const text = root.querySelector('[data-pptx-run="1"]')!.firstChild!;
+      text.nodeValue = 'world   new\u00a0';
+      root.focus();
+      const selection = document.getSelection()!;
+      selection.setBaseAndExtent(text, 12, text, 6);
+      root.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(text.nodeValue).toBe('world \u00a0 new ');
+      expect(selection.anchorNode).toBe(text);
+      expect(selection.anchorOffset).toBe(12);
+      expect(selection.focusNode).toBe(text);
+      expect(selection.focusOffset).toBe(6);
+      expect(edit.extract().paragraphs![0].runs[1]).toMatchObject({
+        text: 'world   new ',
+        bold: true,
+      });
+    } finally {
+      edit.dispose();
+      edit.element.remove();
+    }
+  });
+
+  it('defers space normalization until IME composition ends', async () => {
+    const { presentation, slide, element } = fixture();
+    const edit = renderEditableText(presentation, slide, element, { editableTextAutoFit: true });
+    document.body.append(edit.element);
+    try {
+      const root = edit.textElement;
+      const text = root.querySelector('[data-pptx-run="1"]')!.firstChild!;
+      root.dispatchEvent(new Event('compositionstart'));
+      text.nodeValue = 'world  中文\u00a0';
+      root.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+      expect(text.nodeValue).toBe('world  中文\u00a0');
+      root.dispatchEvent(new Event('compositionend'));
+      expect(text.nodeValue).toBe('world \u00a0中文 ');
+      expect(edit.extract().paragraphs![0].runs[1].text).toBe('world  中文 ');
+    } finally {
+      edit.dispose();
+      edit.element.remove();
+    }
+  });
+
+  it('preserves authored nonbreaking spaces and preformatted tabs', () => {
+    const { presentation, slide, element } = fixture();
+    const value = structuredClone(element);
+    value.paragraphs![0].runs[0].text = 'A\u00a0B';
+    value.paragraphs![0].runs[1].text = '\tA  B';
+    const edit = renderEditableText(presentation, slide, value, { editableTextAutoFit: true });
+    document.body.append(edit.element);
+    try {
+      const root = edit.textElement;
+      const first = root.querySelector('[data-pptx-run="0"]')!.firstChild!;
+      const second = root.querySelector('[data-pptx-run="1"]')!.firstChild!;
+      first.nodeValue = 'A\u00a0B  new\u00a0';
+      second.nodeValue = '\tA  B ';
+      root.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(first.nodeValue).toBe('A\u00a0B \u00a0new\u00a0');
+      expect(second.nodeValue).toBe('\tA  B ');
+    } finally {
+      edit.dispose();
+      edit.element.remove();
+    }
+  });
+
   it('extracts text and native height without mutating the draft or accumulating growth', () => {
     const { presentation, slide, element } = fixture(undefined, '', '', { height: 48 });
     const before = new XMLSerializer().serializeToString(slide.root!.element!);

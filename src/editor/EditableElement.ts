@@ -1,3 +1,5 @@
+import type { TextAutoFit } from './textLayout';
+
 /** Framework-free editor values. Geometry and margins use 96-DPI pixels;
  * font sizes and point spacing use points, ratios use fractions. */
 export interface EditableBullet {
@@ -78,6 +80,7 @@ export interface EditableElement {
   lineCap?: 'flat' | 'rnd' | 'sq';
   headEnd?: EditableLineEnd | null;
   tailEnd?: EditableLineEnd | null;
+  autoFit?: TextAutoFit | null;
   wrap?: string | null;
   vert?: string | null;
   vAlign?: 'top' | 'middle' | 'bottom';

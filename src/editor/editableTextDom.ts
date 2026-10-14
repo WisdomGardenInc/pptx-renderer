@@ -10,6 +10,38 @@ export interface EditableTextParagraphPosition {
   readonly flatChar: number;
 }
 
+export function normalizeEditableWhitespace(
+  root: HTMLElement,
+  sourceParagraphs: readonly { runs: readonly { text: string }[] }[],
+): void {
+  const selection = root.ownerDocument.getSelection();
+  const anchor = selection?.anchorNode;
+  const focus = selection?.focusNode;
+  const anchorOffset = selection?.anchorOffset ?? 0;
+  const focusOffset = selection?.focusOffset ?? 0;
+  const restoreSelection = anchor && focus && root.contains(anchor) && root.contains(focus);
+  let changed = false;
+  const walker = root.ownerDocument.createTreeWalker(root, 4);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    const parent = text.parentElement;
+    if (parent?.closest('[data-bullet="true"]')) continue;
+    const paragraph = parent?.closest<HTMLElement>('[data-pptx-paragraph]');
+    const run = parent?.closest<HTMLElement>('[data-pptx-run]');
+    const source = sourceParagraphs[Number(paragraph?.dataset.pptxParagraph ?? 0)];
+    const sourceRun = source?.runs[Number(run?.dataset.pptxRun ?? 0)];
+    if (sourceRun?.text.includes('\t')) continue;
+    const before = text.nodeValue ?? '';
+    const plain = sourceRun?.text.includes('\u00a0') ? before : before.replace(/\u00a0/g, ' ');
+    const normalized = plain.replace(/ {2}/g, ' \u00a0');
+    if (normalized === before) continue;
+    text.nodeValue = normalized;
+    changed = true;
+  }
+  if (changed && restoreSelection && selection) {
+    selection.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+  }
+}
+
 export function isEditableTextRoot(root: HTMLElement): boolean {
   return root.dataset.pptxEditable === 'true';
 }

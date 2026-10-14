@@ -15,6 +15,7 @@ import type { PdfjsConfig } from '../utils/pdfRenderer';
 export interface RenderContext {
   /** Internal editor mode: emit semantic text DOM markers. */
   editableText?: boolean;
+  editableTextAutoFit?: boolean;
   /** Internal reusable input root; keeps async font/layout callbacks on the live DOM. */
   editableTextRoot?: HTMLDivElement;
   presentation: PresentationData;

@@ -35,6 +35,7 @@ import type { FontFaceConfig } from './ConfiguredFontLoader';
 export interface SlideRendererOptions {
   /** Emit text editing markers. Normally enabled by renderEditableText(). */
   editableText?: boolean;
+  editableTextAutoFit?: boolean;
   /** @internal Stable input root owned by renderEditableText(). */
   editableTextRoot?: HTMLDivElement;
   /** Include HTML/SVG/CSS image decoding in ready. Hosts must mount the slide;
@@ -311,6 +312,7 @@ export function renderSlide(
   );
   ctx.asyncTasks = asyncTasks;
   ctx.editableText = options?.editableText === true;
+  ctx.editableTextAutoFit = options?.editableTextAutoFit === true;
   ctx.editableTextRoot = options?.editableTextRoot;
   ctx.embeddedFontsEnabled = options?.embeddedFonts === true;
   if (options?.onNavigate) {

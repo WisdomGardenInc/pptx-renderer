@@ -6,6 +6,7 @@ import type {
   EditableParagraph,
   EditableTextRun,
 } from '../editor/EditableElement';
+import { writeTextAutoFit } from '../editor/textLayout';
 import { resolvePartPath, sourceElement } from '../editor/parts';
 import { groupLocalElement, slideElementNodes } from '../editor/slideElementNodes';
 import { A, P, R, SP_PR_ORDER, RPR_CHILD_ORDER, ensureChild } from './xmlEdit';
@@ -322,6 +323,8 @@ function patchStyle(
     const body = child(source, 'txBody');
     if (body) {
       const properties = ensure(body, 'bodyPr');
+      if ('autoFit' in element && (!old || element.autoFit !== old.autoFit))
+        writeTextAutoFit(properties, element.autoFit ?? null);
       if (!old || element.wrap !== old.wrap) setAttribute(properties, 'wrap', element.wrap);
       if (!old || element.vAlign !== old.vAlign)
         setAttribute(

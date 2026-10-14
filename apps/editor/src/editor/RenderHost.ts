@@ -3,6 +3,9 @@ import {
   buildPresentation,
   renderSlide,
   serializeSlide,
+  applyTextLayout,
+  readTextLayout,
+  type TextLayoutPatch,
   type SerializedSlidePart,
   type PresentationData,
   type SlideData,
@@ -415,8 +418,60 @@ export class RenderHost {
     const shape = this.selectedShape;
     if (!shape) return;
     facadeApplyTextStyle(shape, patch);
+    this.resizeTextShape(shape);
     this.render();
     this.emit();
+  }
+
+  applyTextLayout(patch: TextLayoutPatch): void {
+    this.commitPendingTextEdit();
+    const shape = this.selectedShape;
+    if (!shape) return;
+    applyTextLayout(shape, patch);
+    this.resizeTextShape(shape);
+    this.render();
+    this.emit();
+  }
+
+  private resizeTextShape(shape: ShapeNodeData): void {
+    const presentation = this.presentation;
+    const slide = this.currentSlide;
+    if (!presentation || !slide || readTextLayout(shape.textBody).autoFit !== 'resize') return;
+    const handle = renderSlide(
+      presentation,
+      { ...slide, nodes: [shape], showMasterSp: false, background: undefined },
+      { mediaUrlCache: this.mediaCache, editableText: true },
+    );
+    const container = handle.element;
+    Object.assign(container.style, {
+      position: 'fixed',
+      left: '-100000px',
+      top: '0',
+      visibility: 'hidden',
+    });
+    document.body.appendChild(container);
+    try {
+      const text = container.querySelector<HTMLElement>('[data-pptx-text]');
+      if (!text || text.style.height !== 'auto') return;
+      text.style.minHeight = '0px';
+      if (text.style.width === 'max-content') text.style.minWidth = '0px';
+      const computed = getComputedStyle(text);
+      const measured = {
+        width: Number.parseFloat(computed.width),
+        height: Number.parseFloat(computed.height),
+      };
+      const bounds = shape.textBoxBounds;
+      shape.size.h = Math.max(1, shape.size.h + measured.height - (bounds?.h ?? shape.size.h));
+      if (text.style.width === 'max-content')
+        shape.size.w = Math.max(1, shape.size.w + measured.width - (bounds?.w ?? shape.size.w));
+      if (bounds) {
+        bounds.h = measured.height;
+        if (text.style.width === 'max-content') bounds.w = measured.width;
+      }
+    } finally {
+      handle.dispose();
+      container.remove();
+    }
   }
 
   applyFillColor(hex: string): void {
@@ -432,6 +487,7 @@ export class RenderHost {
     const shape = this.selectedShape;
     if (!shape) return;
     setPlainText(shape, text);
+    this.resizeTextShape(shape);
     this.render();
     this.emit();
   }
@@ -455,6 +511,7 @@ export class RenderHost {
     ta.addEventListener('pointerdown', (e) => e.stopPropagation());
     ta.addEventListener('mousedown', (e) => e.stopPropagation());
     ta.value = readPlainText(shape);
+    ta.wrap = readTextLayout(shape.textBody).wrap ? 'soft' : 'off';
     const style = readTextStyle(shape);
     const k = this.scale;
     Object.assign(ta.style, {
@@ -522,6 +579,7 @@ export class RenderHost {
     ta.remove();
     if (shape) {
       setPlainText(shape, value);
+      this.resizeTextShape(shape);
       // Keep the edited shape selected after commit.
       this.selectedId = shape.id;
       this.render();

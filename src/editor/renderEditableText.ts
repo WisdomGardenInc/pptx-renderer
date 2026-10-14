@@ -9,10 +9,12 @@ import { editSlideElements } from '../writer/ElementWriter';
 import type { EditableElement } from './EditableElement';
 import { slideElementNodes } from './slideElementNodes';
 import { readSlideElements } from './readSlideElements';
-import { measureEditableTextSize } from './measureEditableTextSize';
+import { measureEditableTextContentSize, measureEditableTextSize } from './measureEditableTextSize';
+import { readTextLayout } from './textLayout';
 import {
   createEditableTextRange,
   extractEditableText,
+  normalizeEditableWhitespace,
   mapEditableTextPositionToParagraph,
 } from './editableTextDom';
 
@@ -35,7 +37,12 @@ export interface EditableTextContext {
 
 export type EditableTextOptions = Pick<
   SlideRendererOptions,
-  'mediaUrlCache' | 'fontFaces' | 'embeddedFonts' | 'embeddedFontLimits' | 'pdfjs'
+  | 'mediaUrlCache'
+  | 'fontFaces'
+  | 'embeddedFonts'
+  | 'embeddedFontLimits'
+  | 'pdfjs'
+  | 'editableTextAutoFit'
 >;
 
 function textWasReduced(next: EditableElement, previous: EditableElement): boolean {
@@ -46,6 +53,16 @@ function textWasReduced(next: EditableElement, previous: EditableElement): boole
   const before = text(previous);
   const after = text(next);
   return after.length < before.length || after.split('\n').length < before.split('\n').length;
+}
+
+function textLayoutSignature(element: EditableElement): string {
+  return JSON.stringify([
+    element.paragraphs,
+    element.wrap,
+    element.autoFit,
+    element.width,
+    element.bodyPadding,
+  ]);
 }
 
 export function renderEditableText(
@@ -71,6 +88,9 @@ export function renderEditableText(
   let renderedSize = { width: initial.width, height: initial.height };
   let renderedTextSize = { ...renderedSize };
   let fitContent = false;
+  let resizeToContent = false;
+  let resizeContentChanged = false;
+  let wrapsText = true;
   let disposed = false;
 
   const update = (element: EditableElement, context?: EditableTextContext): void => {
@@ -156,8 +176,17 @@ export function renderEditableText(
       throw new Error('This PPTX shape has no editable text container.');
     }
     const root = text;
-    if (element.nodeId !== renderedElement.nodeId) fitContent = false;
-    else if (textWasReduced(element, renderedElement)) fitContent = true;
+    const layout = readTextLayout(node.textBody);
+    resizeToContent = options.editableTextAutoFit === true && layout.autoFit === 'resize';
+    wrapsText = layout.wrap;
+    if (element.nodeId !== renderedElement.nodeId) {
+      fitContent = false;
+      resizeContentChanged = false;
+    } else {
+      if (textWasReduced(element, renderedElement)) fitContent = true;
+      if (textLayoutSignature(element) !== textLayoutSignature(renderedElement))
+        resizeContentChanged = true;
+    }
     if (fitContent && root.style.height === 'auto') {
       root.style.minHeight = '0px';
       if (root.style.width === 'max-content') root.style.minWidth = '0px';
@@ -200,6 +229,28 @@ export function renderEditableText(
   };
 
   update(initial);
+  const root = input!;
+  let composing = false;
+  const normalizeWhitespace = () => {
+    if (!disposed && !composing)
+      normalizeEditableWhitespace(root, renderedElement.paragraphs ?? []);
+  };
+  const startComposition = () => {
+    composing = true;
+  };
+  const endComposition = () => {
+    composing = false;
+    normalizeWhitespace();
+  };
+  const Observer = root.ownerDocument.defaultView?.MutationObserver;
+  const whitespaceObserver =
+    options.editableTextAutoFit && Observer ? new Observer(normalizeWhitespace) : undefined;
+  if (options.editableTextAutoFit) {
+    root.addEventListener('input', normalizeWhitespace);
+    root.addEventListener('compositionstart', startComposition);
+    root.addEventListener('compositionend', endComposition);
+    whitespaceObserver?.observe(root, { childList: true, subtree: true, characterData: true });
+  }
   return {
     element: overlay,
     get textElement() {
@@ -213,19 +264,22 @@ export function renderEditableText(
       const root = input!;
       const paragraphs = extractEditableText(root, element.paragraphs ?? []);
       if (textWasReduced({ ...element, paragraphs }, renderedElement)) fitContent = true;
-      const size = measureEditableTextSize(
-        root,
-        element,
-        renderedSize,
-        renderedTextSize,
-        fitContent,
-      );
+      if (JSON.stringify(paragraphs) !== JSON.stringify(renderedElement.paragraphs))
+        resizeContentChanged = true;
+      const size =
+        resizeToContent && resizeContentChanged
+          ? measureEditableTextContentSize(root, element, renderedSize, renderedTextSize, wrapsText)
+          : measureEditableTextSize(root, element, renderedSize, renderedTextSize, fitContent);
       return { ...element, ...size, paragraphs };
     },
     update,
     dispose() {
       if (disposed) return;
       disposed = true;
+      whitespaceObserver?.disconnect();
+      root.removeEventListener('input', normalizeWhitespace);
+      root.removeEventListener('compositionstart', startComposition);
+      root.removeEventListener('compositionend', endComposition);
       view?.dispose();
       if (!options.mediaUrlCache) {
         for (const url of media.values()) if (url.startsWith('blob:')) URL.revokeObjectURL(url);

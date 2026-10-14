@@ -22,6 +22,7 @@ export function copiedStyleBaseline(element: EditableElement): EditableElement {
     ...element,
     paragraphs: undefined,
     vAlign: undefined,
+    autoFit: undefined,
     wrap: undefined,
     bodyPadding: undefined,
     opacity: undefined,

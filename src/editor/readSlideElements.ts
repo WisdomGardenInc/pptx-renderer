@@ -12,6 +12,8 @@ import type {
 } from './EditableElement';
 import { sourceElement, resolvePartPath } from './parts';
 import { slideElementNodes } from './slideElementNodes';
+import { readTextLayout } from './textLayout';
+import { getEffectiveBodyPrChild, parseTextPercentage } from '../renderer/TextBodyProperties';
 import { createRenderContext } from '../renderer/RenderContext';
 import type { RenderContext } from '../renderer/RenderContext';
 import { resolveColor } from '../renderer/StyleResolver';
@@ -267,7 +269,9 @@ export function readSlideElements(
     if (node.nodeType === 'shape') {
       const text = paragraphs(node, presentation, slide);
       const body = node.textBody?.bodyProperties;
-      const fontScale = body?.child('normAutofit').numAttr('fontScale');
+      const fontScale = parseTextPercentage(
+        getEffectiveBodyPrChild(node.textBody, 'normAutofit')?.attr('fontScale'),
+      );
       return {
         ...base,
         ...readShapeEditingStyle(node.source.child('spPr'), node.size.w, node.size.h),
@@ -279,9 +283,10 @@ export function readSlideElements(
         strokeWidth: (node.line?.numAttr('w') ?? 0) / 9525,
         vAlign:
           ({ t: 'top', ctr: 'middle', b: 'bottom' } as const)[body?.attr('anchor') as 't'] ?? 'top',
+        autoFit: readTextLayout(node.textBody).autoFit,
         wrap: body?.attr('wrap') ?? node.textBody?.layoutBodyProperties?.attr('wrap'),
         vert: body?.attr('vert'),
-        fontScale: fontScale != null ? fontScale / 100000 : null,
+        fontScale: fontScale ?? null,
         bodyPadding: {
           l: (body?.numAttr('lIns') ?? 91440) / 9525,
           r: (body?.numAttr('rIns') ?? 91440) / 9525,

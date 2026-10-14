@@ -54,3 +54,43 @@ export function measureEditableTextSize(
       : current.height,
   };
 }
+
+export function measureEditableTextContentSize(
+  root: HTMLElement,
+  current: TextSize,
+  shape: TextSize,
+  text: TextSize,
+  wrap: boolean,
+): TextSize {
+  if (!root.isConnected || root.style.writingMode)
+    return { width: current.width, height: current.height };
+  const copy = root.cloneNode(true) as HTMLElement;
+  copy.removeAttribute('contenteditable');
+  copy.removeAttribute('id');
+  delete copy.dataset.editing;
+  const computed = root.ownerDocument.defaultView?.getComputedStyle(root);
+  Object.assign(copy.style, {
+    position: 'fixed',
+    left: '-100000px',
+    top: '0',
+    width: wrap ? `${text.width}px` : 'max-content',
+    height: 'auto',
+    minWidth: '0px',
+    minHeight: '0px',
+    maxWidth: 'none',
+    maxHeight: 'none',
+    transform: 'none',
+    justifyContent: 'flex-start',
+    whiteSpace: wrap ? 'normal' : 'nowrap',
+    overflow: 'visible',
+    fontFamily: computed?.fontFamily ?? '',
+    visibility: 'hidden',
+    pointerEvents: 'none',
+  });
+  root.ownerDocument.body.appendChild(copy);
+  try {
+    return measureEditableTextSize(copy, current, shape, text, true);
+  } finally {
+    copy.remove();
+  }
+}

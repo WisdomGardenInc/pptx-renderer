@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-demo/
 coverage/
+*.tsbuildinfo
 
 # Vite
 *.local
