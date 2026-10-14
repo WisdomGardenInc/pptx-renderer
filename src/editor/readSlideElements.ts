@@ -12,6 +12,9 @@ import type {
 } from './EditableElement';
 import { sourceElement, resolvePartPath } from './parts';
 import { slideElementNodes } from './slideElementNodes';
+import { createRenderContext } from '../renderer/RenderContext';
+import type { RenderContext } from '../renderer/RenderContext';
+import { resolveColor } from '../renderer/StyleResolver';
 import { readShapeEditingStyle } from './shapeEditingStyle';
 
 function slideTheme(presentation: PresentationData, slide: SlideData): ThemeData | undefined {
@@ -58,10 +61,18 @@ function fontName(
 function textRun(
   text: string,
   sources: (SafeXmlNode | undefined)[],
-  theme?: ThemeData,
+  ctx: RenderContext,
+  fontRef: SafeXmlNode,
 ): EditableTextRun {
+  const theme = slideTheme(ctx.presentation, ctx.slide);
   const size = property(sources, 'sz');
-  const color = sources.map((source) => readColor(source?.child('solidFill'), theme)).find(Boolean);
+  const fills = sources.map((source) => source?.child('solidFill'));
+  const colorSource = [
+    ...fills.slice(0, 2),
+    fontRef.allChildren().length ? fontRef : undefined,
+    ...fills.slice(2),
+  ].find((fill) => fill?.exists());
+  const color = colorSource ? resolveColor(colorSource, ctx) : undefined;
   return {
     text,
     bold: property(sources, 'b') === '1',
@@ -71,7 +82,8 @@ function textRun(
     fontName: fontName(sources, 'latin', theme),
     fontEa: fontName(sources, 'ea', theme),
     fontCs: fontName(sources, 'cs', theme),
-    color: color ?? '#000000',
+    color: color ? `#${color.color.replace(/^#/, '')}` : '#000000',
+    ...(color && color.alpha < 1 ? { colorAlpha: color.alpha } : {}),
   };
 }
 
@@ -133,6 +145,8 @@ function paragraphs(
   slide: SlideData,
 ): EditableParagraph[] {
   const theme = slideTheme(presentation, slide);
+  const ctx = createRenderContext(presentation, slide);
+  const fontRef = node.source.child('style').child('fontRef');
   const layout = presentation.slideToLayout.get(slide.index);
   const masterPath = layout && presentation.layoutToMaster.get(layout);
   const master = masterPath ? presentation.masters.get(masterPath) : undefined;
@@ -191,7 +205,7 @@ function paragraphs(
     return {
       bullet: readBullet(sources, theme),
       runs: paragraph.runs.map((run) =>
-        textRun(run.text, [run.properties, ...defaults, paragraph.endParaRPr], theme),
+        textRun(run.text, [run.properties, ...defaults, paragraph.endParaRPr], ctx, fontRef),
       ),
       align:
         ({ l: 'left', ctr: 'center', r: 'right', just: 'justify' } as const)[align as 'l'] ??
