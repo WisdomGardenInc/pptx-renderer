@@ -174,6 +174,34 @@ function expandCssLengthForScale(length: string, scale: number): string {
   return scaleCssLengthForTransform(length, scale);
 }
 
+function findWrappedAutofitScale(
+  container: HTMLElement,
+  baseWidth: string,
+  baseHeight: string,
+  minimumScale: number,
+): number {
+  const fits = (scale: number): boolean => {
+    container.style.width = expandCssLengthForScale(baseWidth, scale);
+    container.style.height = expandCssLengthForScale(baseHeight, scale);
+    return (
+      container.scrollWidth <= container.clientWidth + WRAPPED_AUTOFIT_WIDTH_TOLERANCE_PX &&
+      container.scrollHeight <= container.clientHeight
+    );
+  };
+  let lower = minimumScale;
+  let upper = 1;
+  if (fits(lower)) {
+    for (let iteration = 0; iteration < 12; iteration++) {
+      const candidate = (lower + upper) / 2;
+      if (fits(candidate)) lower = candidate;
+      else upper = candidate;
+    }
+  }
+  container.style.width = baseWidth;
+  container.style.height = baseHeight;
+  return lower;
+}
+
 function applyVerticalTextFlow(
   el: HTMLElement,
   anchor: string | null | undefined,
@@ -2995,13 +3023,6 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
             measuredUnwrappedWidth = true;
             textContainer.style.whiteSpace = savedWhiteSpace;
           }
-          textContainer.style.justifyContent = savedJC;
-          if (!wasConnected) {
-            if (wrapper.parentNode === measurementRoot) {
-              measurementRoot.removeChild(wrapper);
-            }
-            wrapper.style.visibility = savedWrapperVisibility;
-          }
           let scale = 1;
           const fitWidthOnly =
             usesNoAutofitSingleLineTitleFit ||
@@ -3083,6 +3104,16 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
             containerH > 0
           ) {
             scale = containerH / wrappedContentH;
+          }
+          if (usesWrappedNormAutofit && !isVerticalText && scale > 0 && scale < 1) {
+            scale = findWrappedAutofitScale(textContainer, baseWidth, baseHeight, scale);
+          }
+          textContainer.style.justifyContent = savedJC;
+          if (!wasConnected) {
+            if (wrapper.parentNode === measurementRoot) {
+              measurementRoot.removeChild(wrapper);
+            }
+            wrapper.style.visibility = savedWrapperVisibility;
           }
           if (scale < 1) {
             if (!textContainer.style.transform) {

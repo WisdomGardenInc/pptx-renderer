@@ -168,6 +168,131 @@ for (const grouped of [false, true]) {
   }
 }
 
+for (const grouped of [false, true]) {
+  for (const anchor of ['top', 'middle', 'bottom']) {
+    test(`wrapped shrink uses available space between edits (grouped=${grouped}, anchor=${anchor})`, async ({
+      page,
+    }) => {
+      await page.route('https://example.com/background.png', (route) => route.abort());
+      await page.goto('/test/browser/blank.html');
+      const state = await page.evaluateHandle(
+        async ({ grouped, anchor }) => {
+          const { createEditableTextFixture } = await import('/test/fixtures/editable-text.ts');
+          const { createGroupedTextFixture } = await import('/test/fixtures/grouped-text.ts');
+          const { renderEditableText, createEditableTextRange } = await import('/src/index.ts');
+          const fixture = grouped
+            ? createGroupedTextFixture([{}, {}])
+            : createEditableTextFixture();
+          const element = {
+            ...fixture.element,
+            width: 240,
+            height: 120,
+            autoFit: 'shrink',
+            wrap: 'square',
+            vAlign: anchor,
+            paragraphs: [{ runs: [{ text: '字'.repeat(40), fontSize: 24 }] }],
+          };
+          const edit = renderEditableText(fixture.presentation, fixture.slide, element, {
+            editableTextAutoFit: true,
+          });
+          const host = document.createElement('div');
+          Object.assign(host.style, {
+            position: 'relative',
+            transform: 'scale(0.75)',
+            whiteSpace: 'pre',
+          });
+          host.append(edit.element);
+          document.body.append(host);
+          await Promise.all([edit.ready, document.fonts.ready]);
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          );
+          const root = edit.textElement;
+          root.focus();
+          const range = createEditableTextRange(root, 0, 40, 0, 40);
+          document.getSelection().removeAllRanges();
+          document.getSelection().addRange(range);
+          return { edit, root, host, element };
+        },
+        { grouped, anchor },
+      );
+      try {
+        const initial = await state.evaluate(({ root }) => {
+          const scale = Number(root.dataset.pptxFitScale ?? 1);
+          const width = root.style.width;
+          const height = root.style.height;
+          const justifyContent = root.style.justifyContent;
+          const larger = Math.min(1, scale + 0.01);
+          root.style.width = `${100 / larger}%`;
+          root.style.height = `${100 / larger}%`;
+          root.style.justifyContent = 'flex-start';
+          const largerFits =
+            root.scrollHeight <= root.clientHeight && root.scrollWidth <= root.clientWidth;
+          root.style.width = width;
+          root.style.height = height;
+          root.style.justifyContent = justifyContent;
+          return {
+            scale,
+            largerFits,
+            fits: root.scrollHeight <= root.clientHeight,
+            justifyContent,
+          };
+        });
+        expect(initial.justifyContent).toBe(
+          { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[anchor],
+        );
+        expect(initial.scale).toBeLessThan(1);
+        expect(initial.fits).toBe(true);
+        expect(
+          initial.largerFits,
+          'a larger font must overflow before shrinking is justified',
+        ).toBe(false);
+        await page.keyboard.insertText('.');
+        await page.waitForTimeout(100);
+        const after = await state.evaluate(({ root, edit }) => ({
+          scale: Number(root.dataset.pptxFitScale ?? 1),
+          fits: root.scrollHeight <= root.clientHeight,
+          focused: document.activeElement === root,
+          draft: edit.extract(),
+        }));
+        expect(after.scale).toBeCloseTo(initial.scale, 2);
+        expect(after.fits).toBe(true);
+        expect(after.focused).toBe(true);
+        expect(after.draft.width).toBe(240);
+        expect(after.draft.height).toBe(120);
+        const acknowledged = await state.evaluate(async ({ edit, root }, draft) => {
+          edit.update(draft);
+          await edit.ready;
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          );
+          return {
+            scale: Number(root.dataset.pptxFitScale ?? 1),
+            sameRoot: edit.textElement === root,
+          };
+        }, after.draft);
+        expect(acknowledged.scale).toBeCloseTo(after.scale, 3);
+        expect(acknowledged.sameRoot).toBe(true);
+        await page.keyboard.insertText('字'.repeat(60));
+        await expect
+          .poll(() => state.evaluate(({ root }) => Number(root.dataset.pptxFitScale ?? 1)))
+          .toBeLessThan(after.scale - 0.05);
+        const overflowing = await state.evaluate(({ root }) => ({
+          width: root.scrollWidth > root.clientWidth + 1,
+          height: root.scrollHeight > root.clientHeight,
+        }));
+        expect(overflowing).toEqual({ width: false, height: false });
+      } finally {
+        await state.evaluate(({ edit, host }) => {
+          edit.dispose();
+          host.remove();
+        });
+        await state.dispose();
+      }
+    });
+  }
+}
+
 for (const [mode, tag] of [
   ['none', 'noAutofit'],
   ['resize', 'spAutoFit'],
