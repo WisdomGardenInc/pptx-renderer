@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-15
+
+### Fixed
+
+- Avoid shrinking wrapped autofit text more than needed by measuring fit at progressively larger
+  sizes, while preserving the selected vertical alignment during reflow.
+
 ## [1.8.0] - 2026-10-15
 
 ### Added
