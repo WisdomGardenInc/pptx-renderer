@@ -431,12 +431,28 @@ function renderWarpedTextBody(node: ShapeNodeData, ctx: RenderContext): SVGSVGEl
 // Shape blipFill (image fill) — resolve to blob URL for reuse (e.g. SVG/PNG in process diagrams)
 // ---------------------------------------------------------------------------
 
+function getShapeBlipRelId(blipFill: SafeXmlNode): string | undefined {
+  const blip = blipFill.child('blip');
+  // Office can store a shape's image fill only in the SVG extension. As with
+  // pictures, prefer that vector source over the optional raster fallback.
+  const svgBlip = blip
+    .child('extLst')
+    .children('ext')
+    .map((ext) => ext.child('svgBlip'))
+    .find((candidate) => candidate.exists());
+  return (
+    svgBlip?.attr('embed') ??
+    svgBlip?.attr('r:embed') ??
+    blip.attr('embed') ??
+    blip.attr('r:embed') ??
+    blip.attr('link') ??
+    blip.attr('r:link')
+  );
+}
+
 /** Resolve shape blipFill to a blob URL so we can render it (e.g. slide 23 process graphic). */
 function resolveShapeBlipUrl(blipFill: SafeXmlNode, ctx: RenderContext): string | null {
-  const blip = blipFill.child('blip');
-  const embedId = blip.attr('embed') ?? blip.attr('r:embed');
-  const linkId = blip.attr('link') ?? blip.attr('r:link');
-  const relId = embedId ?? linkId;
+  const relId = getShapeBlipRelId(blipFill);
   if (!relId) return null;
   const rel = ctx.slide.rels.get(relId);
   if (!rel) return null;
@@ -453,10 +469,7 @@ async function resolveShapeBlipUrlAsync(
   blipFill: SafeXmlNode,
   ctx: RenderContext,
 ): Promise<string | null> {
-  const blip = blipFill.child('blip');
-  const embedId = blip.attr('embed') ?? blip.attr('r:embed');
-  const linkId = blip.attr('link') ?? blip.attr('r:link');
-  const relId = embedId ?? linkId;
+  const relId = getShapeBlipRelId(blipFill);
   if (!relId) return null;
   const rel = ctx.slide.rels.get(relId);
   if (!rel) return null;

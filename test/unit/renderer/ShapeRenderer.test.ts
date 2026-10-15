@@ -4789,6 +4789,72 @@ describe('ShapeRenderer', () => {
     expect(clipPath).toBeTruthy();
   });
 
+  for (const lazy of [false, true]) {
+    it.each([
+      ['SVG-only', '', true, 'icon.svg'],
+      ['SVG with raster fallback', 'r:embed="rRaster"', true, 'icon.svg'],
+      ['ordinary raster', 'r:embed="rRaster"', false, 'fallback.png'],
+    ] as const)(
+      'renders %s shape fills with ' + (lazy ? 'lazy' : 'eager') + ' media',
+      async (_label, rasterAttr, svg, expected) => {
+        // AIL_Ch2_V1_PPT_v4, slide 11: icons are custom shapes whose only
+        // image relationship is in asvg:svgBlip, not on the parent a:blip.
+        const node = parseShapeNode(
+          parseXml(`
+        <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+              xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+              xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main">
+          <p:nvSpPr><p:cNvPr id="88" name="SVG icon"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+          <p:spPr>
+            <a:xfrm><a:off x="0" y="0"/><a:ext cx="291586" cy="362014"/></a:xfrm>
+            <a:custGeom><a:pathLst><a:path w="100" h="100">
+              <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+              <a:lnTo><a:pt x="100" y="0"/></a:lnTo>
+              <a:lnTo><a:pt x="100" y="100"/></a:lnTo>
+              <a:lnTo><a:pt x="0" y="100"/></a:lnTo><a:close/>
+            </a:path></a:pathLst></a:custGeom>
+            <a:blipFill><a:blip ${rasterAttr}>
+              <a:extLst><a:ext uri="unrelated"/>
+                ${svg ? '<a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}"><asvg:svgBlip r:embed="rSvg"/></a:ext>' : ''}
+              </a:extLst>
+            </a:blip><a:stretch><a:fillRect/></a:stretch></a:blipFill>
+          </p:spPr>
+        </p:sp>`),
+        );
+        const ctx = createMockRenderContext();
+        ctx.asyncTasks = [];
+        ctx.slide.rels.set('rSvg', { type: 'image', target: '../media/icon.svg' });
+        ctx.slide.rels.set('rRaster', { type: 'image', target: '../media/fallback.png' });
+        const data = new Uint8Array([1, 2, 3]);
+        if (lazy) {
+          ctx.presentation.mediaResolver = {
+            resolve: vi.fn(async (target) => ({
+              mediaPath: target.replace('../', 'ppt/'),
+              data,
+            })),
+          };
+        } else {
+          ctx.presentation.media.set('ppt/media/icon.svg', data);
+          ctx.presentation.media.set('ppt/media/fallback.png', data);
+        }
+        const el = renderShape(node, ctx);
+        await Promise.all(ctx.asyncTasks);
+        const image = el.querySelector('svg image');
+        expect(image).not.toBeNull();
+        expect(image!.getAttribute('preserveAspectRatio')).toBe('none');
+        expect(image!.getAttribute('clip-path')).toMatch(/^url\(#shape-clip-/);
+        expect(ctx.mediaUrlCache.has(`ppt/media/${expected}`)).toBe(true);
+        expect(ctx.mediaUrlCache.size).toBe(1);
+        if (lazy) {
+          expect(ctx.presentation.mediaResolver!.resolve).toHaveBeenCalledWith(
+            `../media/${expected}`,
+          );
+        }
+      },
+    );
+  }
+
   it('renders shape blipFill after lazy media resolves asynchronously', async () => {
     const xml = `
       <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
