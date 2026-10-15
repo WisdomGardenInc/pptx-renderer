@@ -7,6 +7,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-15
+
+### Added
+
+- Support text autofit and wrapping through native editor changes, with shared text layout and
+  measurement helpers and a slide text fitting API.
+
+### Fixed
+
+- Preserve resolved text colors when paragraphs are split, and retain spaces through native text
+  edits and synchronization.
+- Render SVG extension images used in shape fills.
+
 ## [1.7.0] - 2026-10-13
 
 ### Added
