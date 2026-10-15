@@ -45,6 +45,8 @@ for (const grouped of [false, true]) {
       );
       try {
         await page.keyboard.insertText(' 文字自动缩小 Auto fit text '.repeat(16));
+        // Finish with a visible glyph: native trailing spaces reserve room for the caret.
+        await page.keyboard.type('.');
         await expect
           .poll(() => state.evaluate(({ root }) => Number(root.dataset.pptxFitScale ?? 1)))
           .toBeLessThan(1);

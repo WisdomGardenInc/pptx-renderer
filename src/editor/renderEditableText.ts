@@ -12,9 +12,11 @@ import { readSlideElements } from './readSlideElements';
 import { measureTextContentSize, measureEditableTextSize } from './measureEditableTextSize';
 import { readTextLayout } from './textLayout';
 import {
+  captureEditableWhitespace,
   createEditableTextRange,
   extractEditableText,
   normalizeEditableWhitespace,
+  restoreEditableWhitespace,
   mapEditableTextPositionToParagraph,
 } from './editableTextDom';
 
@@ -152,6 +154,10 @@ export function renderEditableText(
     const current = input;
     const selection = current?.ownerDocument.getSelection();
     const focused = !!current && current.ownerDocument.activeElement === current;
+    const whitespace =
+      focused && element.nodeId === renderedElement.nodeId
+        ? captureEditableWhitespace(current, renderedElement.paragraphs ?? [])
+        : undefined;
     const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
     const start =
       range && current?.contains(range.startContainer)
@@ -181,6 +187,7 @@ export function renderEditableText(
       throw new Error('This PPTX shape has no editable text container.');
     }
     const root = text;
+    if (whitespace) restoreEditableWhitespace(root, whitespace, element.paragraphs ?? []);
     const layout = readTextLayout(node.textBody);
     resizeToContent = options.editableTextAutoFit === true && layout.autoFit === 'resize';
     fixedFrame =

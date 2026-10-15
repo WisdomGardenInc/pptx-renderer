@@ -21,7 +21,7 @@ describe('renderEditableText', () => {
       const selection = document.getSelection()!;
       selection.setBaseAndExtent(text, 12, text, 6);
       root.dispatchEvent(new Event('input', { bubbles: true }));
-      expect(text.nodeValue).toBe('world \u00a0 new ');
+      expect(text.nodeValue).toBe('world \u00a0 new\u00a0');
       expect(selection.anchorNode).toBe(text);
       expect(selection.anchorOffset).toBe(12);
       expect(selection.focusNode).toBe(text);
@@ -30,6 +30,102 @@ describe('renderEditableText', () => {
         text: 'world   new ',
         bold: true,
       });
+    } finally {
+      edit.dispose();
+      edit.element.remove();
+    }
+  });
+
+  it('leaves the native whitespace around the caret intact until typing moves past it', () => {
+    const { presentation, slide, element } = fixture();
+    const edit = renderEditableText(presentation, slide, element, { editableTextAutoFit: true });
+    document.body.append(edit.element);
+    try {
+      const root = edit.textElement;
+      const text = root.querySelector('[data-pptx-run="1"]')!.firstChild!;
+      text.nodeValue = 'world\u00a0 new';
+      root.focus();
+      const selection = document.getSelection()!;
+      selection.setBaseAndExtent(text, 7, text, 7);
+      root.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(text.nodeValue).toBe('world\u00a0 new');
+      expect(selection.anchorOffset).toBe(7);
+
+      selection.setBaseAndExtent(text, 8, text, 8);
+      root.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(text.nodeValue).toBe('world \u00a0new');
+      expect(selection.anchorOffset).toBe(8);
+      expect(edit.extract().paragraphs![0].runs[1].text).toBe('world  new');
+    } finally {
+      edit.dispose();
+      edit.element.remove();
+    }
+  });
+
+  it('preserves a native space when the host echoes the extracted draft back into the input', () => {
+    const { presentation, slide, element } = fixture();
+    const edit = renderEditableText(presentation, slide, element, { editableTextAutoFit: true });
+    document.body.append(edit.element);
+    try {
+      const root = edit.textElement;
+      const text = root.querySelector('[data-pptx-run="1"]')!.firstChild!;
+      text.nodeValue = 'world\u00a0';
+      root.focus();
+      document.getSelection()!.setBaseAndExtent(text, 6, text, 6);
+      const draft = edit.extract();
+      expect(draft.paragraphs![0].runs[1].text).toBe('world ');
+      edit.update(draft);
+      expect(edit.textElement).toBe(root);
+      expect(root.querySelector('[data-pptx-run="1"]')!.textContent).toBe('world\u00a0');
+      expect(edit.extract().paragraphs![0].runs[1].text).toBe('world ');
+      expect(document.getSelection()!.anchorOffset).toBe(6);
+    } finally {
+      edit.dispose();
+      edit.element.remove();
+    }
+  });
+
+  it('uses replacement whitespace when an external edit changes authored nonbreaking spaces', () => {
+    const { presentation, slide, element } = fixture();
+    const initial = structuredClone(element);
+    initial.paragraphs![0].runs[1].text = 'world\u00a0next';
+    const edit = renderEditableText(presentation, slide, initial, { editableTextAutoFit: true });
+    document.body.append(edit.element);
+    try {
+      edit.textElement.focus();
+      const next = structuredClone(initial);
+      next.paragraphs![0].runs[1].text = 'world next';
+      edit.update(next);
+      expect(edit.textElement.querySelector('[data-pptx-run="1"]')!.textContent).toBe('world next');
+      expect(edit.extract().paragraphs![0].runs[1].text).toBe('world next');
+    } finally {
+      edit.dispose();
+      edit.element.remove();
+    }
+  });
+
+  it('preserves native whitespace across formatting changes with bullets, tabs and hard breaks', () => {
+    const { presentation, slide, element } = fixture(
+      undefined,
+      '<a:buChar char="•"/>',
+      '<a:br/><a:tab/><a:r><a:rPr/><a:t>Last</a:t></a:r>',
+    );
+    const edit = renderEditableText(presentation, slide, element, { editableTextAutoFit: true });
+    document.body.append(edit.element);
+    try {
+      const root = edit.textElement;
+      const run = root.querySelector('[data-pptx-run="4"]')!.firstChild!;
+      run.nodeValue = 'Last\u00a0';
+      root.focus();
+      document.getSelection()!.setBaseAndExtent(run, 5, run, 5);
+      const draft = edit.extract();
+      draft.paragraphs![0].runs[4].bold = true;
+      edit.update(draft);
+      expect(root.querySelector('[data-pptx-run="4"]')!.textContent).toBe('Last\u00a0');
+      expect(root.querySelector<HTMLElement>('[data-pptx-run="4"]')!.style.fontWeight).toBe('bold');
+      expect(root.querySelector('[data-pptx-run="3"]')!.textContent).toBe('\t');
+      expect(root.querySelector('[data-bullet="true"]')).not.toBeNull();
+      expect(edit.extract().paragraphs).toEqual(draft.paragraphs);
     } finally {
       edit.dispose();
       edit.element.remove();
@@ -49,7 +145,7 @@ describe('renderEditableText', () => {
       await Promise.resolve();
       expect(text.nodeValue).toBe('world  中文\u00a0');
       root.dispatchEvent(new Event('compositionend'));
-      expect(text.nodeValue).toBe('world \u00a0中文 ');
+      expect(text.nodeValue).toBe('world \u00a0中文\u00a0');
       expect(edit.extract().paragraphs![0].runs[1].text).toBe('world  中文 ');
     } finally {
       edit.dispose();

@@ -31,13 +31,38 @@ export function normalizeEditableWhitespace(
     const sourceRun = source?.runs[Number(run?.dataset.pptxRun ?? 0)];
     if (sourceRun?.text.includes('\t')) continue;
     const before = text.nodeValue ?? '';
-    const plain = sourceRun?.text.includes('\u00a0') ? before : before.replace(/\u00a0/g, ' ');
-    const normalized = plain.replace(/ {2}/g, ' \u00a0');
+    const normalized = before.replace(/[ \u00a0]+/g, (whitespace, index: number) => {
+      const end = index + whitespace.length;
+      // Native editing uses NBSP at text boundaries and around the caret. Leave
+      // those spaces intact until typing moves beyond them.
+      if (
+        index === 0 ||
+        end === before.length ||
+        (selection?.isCollapsed && anchor === text && index <= anchorOffset && anchorOffset <= end)
+      )
+        return whitespace;
+      const plain = sourceRun?.text.includes('\u00a0')
+        ? whitespace
+        : whitespace.replace(/\u00a0/g, ' ');
+      return plain.replace(/ {2}/g, ' \u00a0');
+    });
     if (normalized === before) continue;
-    text.nodeValue = normalized;
+    // Replace only the changed characters; assigning nodeValue resets native edit offsets.
+    const data = text as Text;
+    for (let index = 0; index < normalized.length; index++) {
+      if (normalized[index] !== before[index]) data.replaceData(index, 1, normalized[index]);
+    }
     changed = true;
   }
-  if (changed && restoreSelection && selection) {
+  if (
+    changed &&
+    restoreSelection &&
+    selection &&
+    (selection.anchorNode !== anchor ||
+      selection.anchorOffset !== anchorOffset ||
+      selection.focusNode !== focus ||
+      selection.focusOffset !== focusOffset)
+  ) {
     selection.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
   }
 }
@@ -267,6 +292,71 @@ export function createEditableTextRange(
   range.setStart(start.node, start.offset);
   range.setEnd(end.node, end.offset);
   return range;
+}
+
+interface EditableWhitespaceSnapshot {
+  readonly text: string;
+  readonly content: string;
+}
+
+function paragraphTextNodes(paragraph: HTMLElement): Node[] {
+  const nodes: Node[] = [];
+  const walker = paragraph.ownerDocument.createTreeWalker(paragraph, 5, {
+    acceptNode(node) {
+      if (node.nodeType === 3) return 1;
+      const element = node as HTMLElement;
+      if (element.dataset.bullet === 'true') return 2;
+      return element.tagName === 'BR' && element.hasAttribute('data-pptx-run') ? 1 : 3;
+    },
+  });
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node);
+  return nodes;
+}
+
+function paragraphNodeText(nodes: readonly Node[]): string {
+  return nodes
+    .map((node) => (node.nodeType === 3 ? stripZwsp(node.nodeValue ?? '') : '\n'))
+    .join('');
+}
+
+export function captureEditableWhitespace(
+  root: HTMLElement,
+  sourceParagraphs: readonly { runs: { text: string }[] }[],
+): EditableWhitespaceSnapshot[] {
+  const paragraphs = extractEditableText(root, sourceParagraphs);
+  return getParagraphEls(root).map((paragraph, index) => ({
+    text: paragraphNodeText(paragraphTextNodes(paragraph)),
+    content: paragraphs[index].runs.map((run) => run.text).join(''),
+  }));
+}
+
+export function restoreEditableWhitespace(
+  root: HTMLElement,
+  snapshot: readonly EditableWhitespaceSnapshot[],
+  paragraphs: readonly { runs: readonly { text: string }[] }[],
+): void {
+  for (const [index, paragraph] of getParagraphEls(root).entries()) {
+    const previous = snapshot[index];
+    if (!previous || previous.content !== paragraphs[index]?.runs.map((run) => run.text).join(''))
+      continue;
+    const nodes = paragraphTextNodes(paragraph);
+    const text = paragraphNodeText(nodes);
+    if (text.replace(/\u00a0/g, ' ') !== previous.text.replace(/\u00a0/g, ' ')) continue;
+    let flatChar = 0;
+    for (const node of nodes) {
+      if (node.nodeType !== 3) {
+        flatChar++;
+        continue;
+      }
+      const before = node.nodeValue ?? '';
+      for (let offset = 0; offset < before.length; offset++) {
+        if (before[offset] === '\u200b') continue;
+        const original = previous.text[flatChar++];
+        if (before[offset] !== original && /[ \u00a0]/.test(before[offset]))
+          (node as Text).replaceData(offset, 1, original);
+      }
+    }
+  }
 }
 
 /** Read text while retaining the host's paragraph/run metadata (including bullet definitions). */
