@@ -293,27 +293,33 @@ for (const grouped of [false, true]) {
   }
 }
 
-for (const [mode, tag] of [
-  ['none', 'noAutofit'],
-  ['resize', 'spAutoFit'],
+for (const [mode, tag, wrap, grouped] of [
+  ['none', 'noAutofit', 'none', false],
+  ['resize', 'spAutoFit', 'none', false],
+  ['none', 'noAutofit', 'square', false],
+  ['resize', 'spAutoFit', 'square', false],
+  ['none', 'noAutofit', 'square', true],
+  ['resize', 'spAutoFit', 'square', true],
 ] as const) {
-  test(`live autofit leaves ${mode} input unscaled`, async ({ page }) => {
+  test(`live autofit leaves ${mode} input unscaled (wrap=${wrap}, grouped=${grouped})`, async ({
+    page,
+  }) => {
     await page.route('https://example.com/background.png', (route) => route.abort());
     await page.goto('/test/browser/blank.html');
     const state = await page.evaluateHandle(
-      async ({ mode, tag }) => {
+      async ({ mode, tag, wrap, grouped }) => {
         const { createEditableTextFixture } = await import('/test/fixtures/editable-text.ts');
+        const { createGroupedTextFixture } = await import('/test/fixtures/grouped-text.ts');
         const { renderEditableText, createEditableTextRange } = await import('/src/index.ts');
-        const fixture = createEditableTextFixture(
-          `<a:bodyPr wrap="none"><a:${tag}/></a:bodyPr>`,
-          '',
-          '',
-          { height: 48 },
-        );
+        const fixture = grouped
+          ? createGroupedTextFixture([{}, {}])
+          : createEditableTextFixture(`<a:bodyPr wrap="${wrap}"><a:${tag}/></a:bodyPr>`, '', '', {
+              height: 48,
+            });
         const edit = renderEditableText(
           fixture.presentation,
           fixture.slide,
-          { ...fixture.element, autoFit: mode },
+          { ...fixture.element, autoFit: mode, wrap, width: 600, height: 48 },
           { editableTextAutoFit: true },
         );
         document.body.append(edit.element);
@@ -325,12 +331,13 @@ for (const [mode, tag] of [
         document.getSelection().addRange(range);
         return { edit, root };
       },
-      { mode, tag },
+      { mode, tag, wrap, grouped },
     );
     try {
       await page.keyboard.insertText('Long text '.repeat(24));
       const result = await state.evaluate(async ({ edit, root }, mode) => {
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const liveScale = Number(root.dataset.pptxFitScale ?? 1);
         const before = root.style.cssText;
         const draft = edit.extract();
         const measurementPreservesLayout = root.style.cssText === before;
@@ -343,6 +350,8 @@ for (const [mode, tag] of [
         }
         return {
           width: draft.width,
+          height: draft.height,
+          liveScale,
           measurementPreservesLayout,
           scale: Number(root.dataset.pptxFitScale ?? 1),
           fontSize: getComputedStyle(root.querySelector('span')).fontSize,
@@ -350,7 +359,14 @@ for (const [mode, tag] of [
         };
       }, mode);
       expect(result.measurementPreservesLayout).toBe(true);
-      if (mode === 'resize') expect(result.width).toBeGreaterThan(600);
+      expect(result.liveScale).toBe(1);
+      if (mode === 'resize') {
+        if (wrap === 'none') expect(result.width).toBeGreaterThan(600);
+        else {
+          expect(result.width).toBe(600);
+          expect(result.height).toBeGreaterThan(48);
+        }
+      }
       expect(result.scale).toBe(1);
       expect(result.fontSize).toBe('32px');
       expect(result.text).toContain('Long text');

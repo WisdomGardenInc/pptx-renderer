@@ -17,6 +17,7 @@ import { createRenderContext } from '../renderer/RenderContext';
 import type { RenderContext } from '../renderer/RenderContext';
 import { resolveColor } from '../renderer/StyleResolver';
 import { readShapeEditingStyle } from './shapeEditingStyle';
+import { readShapeFill } from './shapeFill';
 
 function slideTheme(presentation: PresentationData, slide: SlideData): ThemeData | undefined {
   const layout = presentation.slideToLayout.get(slide.index);
@@ -25,21 +26,9 @@ function slideTheme(presentation: PresentationData, slide: SlideData): ThemeData
   return theme ? presentation.themes.get(theme) : undefined;
 }
 
-function readColor(fill: SafeXmlNode | undefined, theme?: ThemeData): string | null {
+function readColor(fill: SafeXmlNode | undefined, ctx: RenderContext): string | null {
   if (!fill?.exists() || fill.localName === 'noFill') return null;
-  const color = fill
-    .allChildren()
-    .find((child) => ['srgbClr', 'schemeClr', 'sysClr'].includes(child.localName));
-  if (!color) return null;
-  const slot = color.attr('val') ?? '';
-  const value =
-    color.localName === 'schemeClr'
-      ? theme?.colorScheme.get(
-          ({ tx1: 'dk1', tx2: 'dk2', bg1: 'lt1', bg2: 'lt2' } as Record<string, string>)[slot] ??
-            slot,
-        )
-      : (color.attr('lastClr') ?? slot);
-  return value && /^[a-f\d]{6}$/i.test(value) ? `#${value}` : null;
+  return `#${resolveColor(fill, ctx).color.replace(/^#/, '')}`;
 }
 
 function property(sources: (SafeXmlNode | undefined)[], name: string): string | undefined {
@@ -99,7 +88,7 @@ function placeholderProperties(node: SafeXmlNode): SafeXmlNode {
 
 function readBullet(
   sources: (SafeXmlNode | undefined)[],
-  theme?: ThemeData,
+  ctx: RenderContext,
 ): EditableBullet | null {
   const props = sources.filter((source): source is SafeXmlNode => !!source?.exists());
   const kind = props.find((source) =>
@@ -129,7 +118,7 @@ function readBullet(
     (source) => source.child('buClr').exists() || source.child('buClrTx').exists(),
   );
   if (color?.child('buClr').exists())
-    bullet.color = readColor(color.child('buClr'), theme) ?? undefined;
+    bullet.color = readColor(color.child('buClr'), ctx) ?? undefined;
   return bullet;
 }
 
@@ -145,7 +134,6 @@ function paragraphs(
   presentation: PresentationData,
   slide: SlideData,
 ): EditableParagraph[] {
-  const theme = slideTheme(presentation, slide);
   const ctx = createRenderContext(presentation, slide);
   const fontRef = node.source.child('style').child('fontRef');
   const layout = presentation.slideToLayout.get(slide.index);
@@ -204,7 +192,7 @@ function paragraphs(
     const before = paragraphChild('spcBef')?.child('spcPts').numAttr('val');
     const after = paragraphChild('spcAft')?.child('spcPts').numAttr('val');
     return {
-      bullet: readBullet(sources, theme),
+      bullet: readBullet(sources, ctx),
       runs: paragraph.runs.map((run) =>
         textRun(run.text, [run.properties, ...defaults, paragraph.endParaRPr], ctx, fontRef),
       ),
@@ -231,7 +219,7 @@ export function readSlideElements(
   presentation: PresentationData,
   slide: SlideData,
 ): EditableElement[] {
-  const theme = slideTheme(presentation, slide);
+  const ctx = createRenderContext(presentation, slide);
   return slideElementNodes(slide, presentation).map(({ node, parent }, index): EditableElement => {
     const id = node.id;
     const source = sourceElement(slide, id);
@@ -275,8 +263,8 @@ export function readSlideElements(
         type: node.source.child('nvSpPr').child('cNvSpPr').attr('txBox') === '1' ? 'text' : 'shape',
         paragraphs: text,
         shapeType: node.presetGeometry ?? 'rect',
-        fillColor: readColor(node.fill, theme),
-        strokeColor: readColor(node.line?.child('solidFill'), theme),
+        ...readShapeFill(node, ctx),
+        strokeColor: readColor(node.line?.child('solidFill'), ctx),
         strokeWidth: (node.line?.numAttr('w') ?? 0) / 9525,
         vAlign:
           ({ t: 'top', ctr: 'middle', b: 'bottom' } as const)[body?.attr('anchor') as 't'] ?? 'top',

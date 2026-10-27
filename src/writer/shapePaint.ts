@@ -1,3 +1,4 @@
+import { parseXml } from '../parser/XmlParser';
 import type { EditableLineEnd } from '../editor/EditableElement';
 import {
   A,
@@ -45,6 +46,55 @@ export function setFillColor(
   rgb.setAttribute('val', color.replace(/^#/, ''));
   if (alpha != null && alpha < 1)
     ensureChild(rgb, A, 'a:alpha', []).setAttribute('val', String(Math.round(alpha * 100000)));
+}
+
+const COLOR_LOCAL_NAMES = ['srgbClr', 'schemeClr', 'sysClr', 'prstClr', 'hslClr', 'scrgbClr'];
+
+/** Set absolute opacity without replacing the authored fill or color transforms. */
+export function setFillAlpha(
+  source: Element,
+  alpha: number | null | undefined,
+  sourceFillXml?: string,
+): void {
+  const value = alpha ?? 1;
+  if (!Number.isFinite(value) || value < 0 || value > 1)
+    throw new RangeError('Paint alpha must be between zero and one.');
+  const properties = childByLocal(source, 'spPr');
+  if (!properties) return;
+  let explicit = Array.from(properties.children).find((node) =>
+    FILL_LOCAL_NAMES.includes(node.localName),
+  );
+  if (!explicit && sourceFillXml) {
+    const inherited = parseXml(sourceFillXml);
+    if (inherited.exists() && FILL_LOCAL_NAMES.includes(inherited.localName)) {
+      // fillRef alpha alone is ignored by some Office consumers. Materialize the
+      // effective theme paint locally while retaining its scheme colors and geometry.
+      explicit = properties.ownerDocument.importNode(inherited.element!, true) as Element;
+      ensureChild(properties, A, `a:${inherited.localName}`, SP_PR_ORDER).replaceWith(explicit);
+    }
+  }
+  const reference = childByLocal(childByLocal(source, 'style') ?? source, 'fillRef');
+  const fill = explicit ?? reference;
+  if (!fill || fill.localName === 'noFill') return;
+  if (!explicit && Number(reference?.getAttribute('idx') ?? 0) <= 0) return;
+  if (fill.localName === 'blipFill') {
+    const blip = childByLocal(fill, 'blip');
+    if (blip) {
+      removeChildrenByLocal(blip, ['alphaModFix', 'alphaMod', 'alphaOff']);
+      if (value < 1) {
+        const modifier = blip.ownerDocument.createElementNS(A, 'a:alphaModFix');
+        modifier.setAttribute('amt', String(Math.round(value * 100000)));
+        blip.insertBefore(modifier, childByLocal(blip, 'extLst') ?? null);
+      }
+    }
+    return;
+  }
+  for (const color of Array.from(fill.getElementsByTagNameNS(A, '*'))) {
+    if (!COLOR_LOCAL_NAMES.includes(color.localName)) continue;
+    removeChildrenByLocal(color, ['alpha', 'alphaMod', 'alphaOff']);
+    if (value < 1)
+      ensureChild(color, A, 'a:alpha', []).setAttribute('val', String(Math.round(value * 100000)));
+  }
 }
 
 function validatePaint(paint: ShapePaint): void {

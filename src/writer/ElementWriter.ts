@@ -12,7 +12,7 @@ import { groupLocalElement, slideElementNodes } from '../editor/slideElementNode
 import { A, P, R, SP_PR_ORDER, RPR_CHILD_ORDER, ensureChild } from './xmlEdit';
 import { copiedStyleBaseline, normalizeCopiedRelationships } from './copiedElement';
 import { LINE_STYLE_ORDER, patchShapeEditingStyle } from './shapeEditingStyle';
-import { setFillColor as setColor } from './shapePaint';
+import { setFillColor as setColor, setFillAlpha } from './shapePaint';
 import { createShapeElement } from './shapeGeometry';
 
 const PACKAGE_R = 'http://schemas.openxmlformats.org/package/2006/relationships';
@@ -286,15 +286,13 @@ function patchStyle(
   previous: EditableElement | undefined,
 ): void {
   const spPr = child(source, 'spPr');
-  if (
-    spPr &&
-    'fillColor' in element &&
-    (!previous ||
-      !('fillColor' in previous) ||
-      element.fillColor !== previous.fillColor ||
-      element.fillAlpha !== previous.fillAlpha)
-  ) {
-    setColor(spPr, element.fillColor, element.fillAlpha);
+  if (spPr && 'fillColor' in element) {
+    const old = previous && 'fillColor' in previous ? previous : undefined;
+    if (!old || element.fillColor !== old.fillColor) {
+      setColor(spPr, element.fillColor, element.fillAlpha);
+    } else if (element.fillAlpha !== old.fillAlpha) {
+      setFillAlpha(source, element.fillAlpha, old.sourceFillXml);
+    }
   }
   if (spPr && 'strokeColor' in element) {
     const old = previous && 'strokeColor' in previous ? previous : undefined;

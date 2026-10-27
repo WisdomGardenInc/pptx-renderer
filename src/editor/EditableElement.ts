@@ -54,6 +54,8 @@ export interface EditableElement {
   nodeId?: string;
   parentNodeId?: string;
   sourceXml?: string;
+  /** Effective inherited fill with theme placeholder colors bound; retained for opacity edits. */
+  sourceFillXml?: string;
   copyStyle?: 'source' | 'snapshot';
   sourcePart?: string;
   relationships?: Record<string, { type: string; target: string; targetMode?: string }>;
@@ -70,6 +72,9 @@ export interface EditableElement {
   locked?: boolean;
   paragraphs?: EditableParagraph[];
   shapeType?: string | null;
+  /** Source fill category. Theme fills may resolve to solid or non-solid paint. */
+  fillKind?: 'solid' | 'gradient' | 'pattern' | 'image' | 'theme' | 'none';
+  /** Resolved display color for solid fills; null for non-solid or absent fills. */
   fillColor?: string | null;
   fillAlpha?: number | null;
   strokeColor?: string | null;

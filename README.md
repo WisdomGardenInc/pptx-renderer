@@ -554,6 +554,16 @@ host responsibilities. Chart, table, and group objects carry `sourceXml`,
 `sourcePart`, and relationships so unmodified content survives edits and copying.
 Structural page changes still require `buildPresentation`.
 
+Shape fills expose `fillKind` (`solid`, `gradient`, `pattern`, `image`, `theme`, or
+`none`). `fillColor` is the resolved display color for solid paint, including
+color-map overrides and color modifiers; non-solid fills return `null`. Changing
+only `fillAlpha` preserves the fill structure and color modifiers, setting an
+absolute alpha on each gradient stop or pattern color. Different per-stop alphas
+leave the projected scalar `fillAlpha` unset. Retain `sourceFillXml` with the rest
+of the projection: opacity edits use it to materialize theme fills locally for
+Office compatibility while preserving scheme colors and gradient geometry.
+Changing `fillColor` explicitly replaces the paint with a solid fill or no fill.
+
 Copies preserve their native source XML styles by default (`copyStyle: 'source'`).
 Set `copyStyle: 'snapshot'` on a new host element with `sourceXml` to materialize its
 editable text, supported shape styles, image opacity and crop instead. Supply a

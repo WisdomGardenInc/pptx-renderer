@@ -258,7 +258,7 @@ function colorToCss(color: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
 }
 
-function resolveColorWithPlaceholder(
+export function resolveColorWithPlaceholder(
   colorNode: SafeXmlNode,
   ctx: RenderContext,
   placeholderColorNode?: SafeXmlNode,

@@ -2916,7 +2916,8 @@ export function renderShape(node: ShapeNodeData, ctx: RenderContext): HTMLElemen
       renderTextBody(textBody, node.placeholder, ctx, textContainer, textOptions);
       wrapper.appendChild(textContainer);
 
-      const fitEditableTextToShape = ctx.editableText && ctx.editableTextAutoFit;
+      const fitEditableTextToShape =
+        ctx.editableText && ctx.editableTextAutoFit && (!hasSpAutoFit || hasNormAutofit);
       if (ctx.editableText && !isVerticalText && !fitEditableTextToShape) {
         textContainer.style.height = 'auto';
         textContainer.style.minHeight = `${node.textBoxBounds?.h ?? node.size.h}px`;
