@@ -249,13 +249,33 @@ for (const grouped of [false, true]) {
         ).toBe(false);
         await page.keyboard.insertText('.');
         await page.waitForTimeout(100);
-        const after = await state.evaluate(({ root, edit }) => ({
-          scale: Number(root.dataset.pptxFitScale ?? 1),
-          fits: root.scrollHeight <= root.clientHeight,
-          focused: document.activeElement === root,
-          draft: edit.extract(),
-        }));
-        expect(after.scale).toBeCloseTo(initial.scale, 2);
+        const after = await state.evaluate(({ root, edit }, initialScale) => {
+          const scale = Number(root.dataset.pptxFitScale ?? 1);
+          const fits = root.scrollHeight <= root.clientHeight;
+          const style = root.style.cssText;
+          root.style.justifyContent = 'flex-start';
+          const fitsAt = (candidate: number) => {
+            root.style.width = `${100 / candidate}%`;
+            root.style.height = `${100 / candidate}%`;
+            return (
+              root.scrollHeight <= root.clientHeight && root.scrollWidth <= root.clientWidth + 1
+            );
+          };
+          const initialScaleFits = fitsAt(initialScale);
+          const largerFits = fitsAt(Math.min(1, scale + 0.01));
+          root.style.cssText = style;
+          return {
+            scale,
+            fits,
+            initialScaleFits,
+            largerFits,
+            focused: document.activeElement === root,
+            draft: edit.extract(),
+          };
+        }, initial.scale);
+        if (after.initialScaleFits) expect(after.scale).toBeCloseTo(initial.scale, 2);
+        else expect(after.scale).toBeLessThan(initial.scale);
+        expect(after.largerFits, 'a larger font must overflow after editing').toBe(false);
         expect(after.fits).toBe(true);
         expect(after.focused).toBe(true);
         expect(after.draft.width).toBe(240);
