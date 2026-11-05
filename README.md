@@ -554,6 +554,18 @@ host responsibilities. Chart, table, and group objects carry `sourceXml`,
 `sourcePart`, and relationships so unmodified content survives edits and copying.
 Structural page changes still require `buildPresentation`.
 
+For reads that only need editable values, pass `{ includeSourceXml: false }` to
+`readSlideElements`. `readSlideElement(presentation, slide, nodeId, options)` reads
+one element; use the same option for text input and toolbar updates. Default reads
+still include `sourceXml` for copying native content. Bulk reads and writes build
+one source index per operation. Hosts doing several native source lookups can
+reuse `indexSourceElements(slide)` as the third argument to `sourceElement`;
+rebuild that index after modifying the XML tree.
+
+`renderEditableText.update()` clones and patches only its target shape, retaining
+the slide's theme context and group coordinate mapping. `fitSlideText` prepares
+the batch once and reuses the prepared node lookup for individual measurements.
+
 Shape fills expose `fillKind` (`solid`, `gradient`, `pattern`, `image`, `theme`, or
 `none`). `fillColor` is the resolved display color for solid paint, including
 color-map overrides and color modifiers; non-solid fills return `null`. Changing
@@ -563,6 +575,15 @@ leave the projected scalar `fillAlpha` unset. Retain `sourceFillXml` with the re
 of the projection: opacity edits use it to materialize theme fills locally for
 Office compatibility while preserving scheme colors and gradient geometry.
 Changing `fillColor` explicitly replaces the paint with a solid fill or no fill.
+
+Paragraph `spaceBefore` and `spaceAfter` use points by default. When
+`spaceBeforeIsPt` or `spaceAfterIsPt` is `false`, the corresponding value is an
+Office line ratio (`2` means 200%). Retain these flags when saving, and set them
+when switching units; the writer preserves `spcPct` versus `spcPts`, including
+explicit zero values. OOXML booleans such as `true`/`false` and `1`/`0` resolve
+consistently for run styles, locks and text box identity. Editor projection and
+text rendering share paragraph style source precedence and placeholder parent
+matching with the model.
 
 Copies preserve their native source XML styles by default (`copyStyle: 'source'`).
 Set `copyStyle: 'snapshot'` on a new host element with `sourceXml` to materialize its

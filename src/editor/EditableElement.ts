@@ -33,8 +33,12 @@ export interface EditableParagraph {
   align?: 'none' | 'left' | 'center' | 'right' | 'justify';
   lineSpacing?: number | null;
   lineSpacingIsPt?: boolean;
+  /** Points by default; a fraction of an Office line when spaceBeforeIsPt is false. */
   spaceBefore?: number | null;
+  spaceBeforeIsPt?: boolean;
+  /** Points by default; a fraction of an Office line when spaceAfterIsPt is false. */
   spaceAfter?: number | null;
+  spaceAfterIsPt?: boolean;
   indentLevel?: number;
   marL?: number | null;
   indent?: number | null;

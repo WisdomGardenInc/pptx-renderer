@@ -123,7 +123,8 @@ export type { SerializedSlidePart } from './writer/SlideWriter';
 
 // Framework-free editing: hosts adapt their own state to pixel/point values.
 export { editSlideElements } from './writer/ElementWriter';
-export { readSlideElements, imagePartPaths } from './editor/readSlideElements';
+export { readSlideElements, readSlideElement, imagePartPaths } from './editor/readSlideElements';
+export type { ReadSlideElementsOptions } from './editor/readSlideElements';
 export { applyTextLayout, readTextLayout } from './editor/textLayout';
 export type { TextAutoFit, TextFitMetrics, TextLayout, TextLayoutPatch } from './editor/textLayout';
 export { fitSlideText } from './editor/fitSlideText';
@@ -148,7 +149,12 @@ export type {
   EditableTextRunPosition,
   EditableTextParagraphPosition,
 } from './editor/editableTextDom';
-export { relationshipsPart, resolvePartPath, sourceElement } from './editor/parts';
+export {
+  relationshipsPart,
+  resolvePartPath,
+  sourceElement,
+  indexSourceElements,
+} from './editor/parts';
 export type {
   EditableElement,
   EditableParagraph,

@@ -3,7 +3,7 @@
  * with full 7-level style inheritance.
  */
 
-import { masterPlaceholderType } from '../model/placeholderMatching';
+import { findStyleAtLevel, paragraphStyleSources } from './textStyleSources';
 import { SafeXmlNode } from '../parser/XmlParser';
 import { RenderContext } from './RenderContext';
 import type { TextBody, TextParagraph, TextRun } from '../model/nodes/ShapeNode';
@@ -68,86 +68,6 @@ function findCompactNumericRunGroups(runs: TextRun[]): Map<number, number> {
   }
 
   return groups;
-}
-
-/**
- * Find paragraph properties at a specific indent level from a list style node.
- * Tries lvl{n}pPr (where n = level + 1), then falls back to defPPr.
- */
-function findStyleAtLevel(styleNode: SafeXmlNode | undefined, level: number): SafeXmlNode {
-  if (!styleNode || !styleNode.exists()) {
-    return new SafeXmlNode(null);
-  }
-  // Try level-specific style (lvl1pPr, lvl2pPr, etc.)
-  const lvlNode = styleNode.child(`lvl${level + 1}pPr`);
-  if (lvlNode.exists()) return lvlNode;
-  // Fall back to default
-  return styleNode.child('defPPr');
-}
-
-/**
- * Determine the placeholder category for style inheritance.
- * Returns 'title', 'body', or 'other'.
- */
-function getPlaceholderCategory(
-  placeholder: PlaceholderInfo | undefined,
-): 'title' | 'body' | 'other' {
-  if (!placeholder || !placeholder.type) return 'other';
-  const t = placeholder.type;
-  if (t === 'title' || t === 'ctrTitle') return 'title';
-  if (
-    t === 'body' ||
-    t === 'subTitle' ||
-    t === 'obj' ||
-    t === 'dt' ||
-    t === 'ftr' ||
-    t === 'sldNum'
-  ) {
-    return 'body';
-  }
-  return 'other';
-}
-
-/**
- * Find a placeholder node in a list by matching type and/or idx.
- */
-function findPlaceholderNode(
-  placeholders: SafeXmlNode[],
-  info: PlaceholderInfo,
-  matchBy: 'idx' | 'type',
-): SafeXmlNode | undefined {
-  for (const ph of placeholders) {
-    // Navigate to the ph element to read its attributes
-    let phEl: SafeXmlNode | undefined;
-    const nvSpPr = ph.child('nvSpPr');
-    if (nvSpPr.exists()) {
-      phEl = nvSpPr.child('nvPr').child('ph');
-    }
-    if (!phEl || !phEl.exists()) {
-      const nvPicPr = ph.child('nvPicPr');
-      if (nvPicPr.exists()) {
-        phEl = nvPicPr.child('nvPr').child('ph');
-      }
-    }
-    if (!phEl || !phEl.exists()) continue;
-
-    const phType = phEl.attr('type');
-    const phIdx = phEl.numAttr('idx');
-
-    if (matchBy === 'idx' && (phIdx ?? 0) === (info.idx ?? 0)) return ph;
-    if (matchBy === 'type' && (phType ?? 'obj') === masterPlaceholderType(info.type)) return ph;
-  }
-  return undefined;
-}
-
-/**
- * Extract lstStyle from a placeholder shape node.
- */
-function getPlaceholderLstStyle(phNode: SafeXmlNode): SafeXmlNode | undefined {
-  const txBody = phNode.child('txBody');
-  if (!txBody.exists()) return undefined;
-  const lstStyle = txBody.child('lstStyle');
-  return lstStyle.exists() ? lstStyle : undefined;
 }
 
 /**
@@ -867,22 +787,6 @@ export function renderTextBody(
   options?: RenderTextBodyOptions,
 ): void {
   const textBody = resolveTextFields(sourceTextBody, ctx);
-  const layoutPh = placeholder
-    ? findPlaceholderNode(
-        ctx.layout.placeholders.map((entry) => entry.node),
-        placeholder,
-        'idx',
-      )
-    : undefined;
-  const layoutPhProps = layoutPh?.child('nvSpPr').child('nvPr').child('ph');
-  const layoutPhType = layoutPhProps?.exists()
-    ? layoutPhProps.attr('type')
-    : layoutPh?.child('nvPicPr').child('nvPr').child('ph').attr('type');
-  // Follow the parent's parent: a local slide type does not rewire layout -> master.
-  const masterInfo = layoutPh ? { type: layoutPhType } : placeholder;
-  const category = getPlaceholderCategory(
-    masterInfo ? { type: masterPlaceholderType(masterInfo.type) } : undefined,
-  );
   // ShapeRenderer may already configure fitting/vertical flow. Other callers (tables)
   // need a local whitespace boundary so host pre/nowrap does not leak into paragraphs.
   if (!container.style.whiteSpace) {
@@ -936,42 +840,8 @@ export function renderTextBody(
     // ---- Build merged paragraph style (7-level inheritance) ----
     const merged: MergedParagraphStyle = {};
 
-    // Level 1: presentation defaultTextStyle
-    mergeParagraphProps(merged, findStyleAtLevel(ctx.presentation.defaultTextStyle, level));
-
-    // Level 2: master defaultTextStyle
-    mergeParagraphProps(merged, findStyleAtLevel(ctx.master.defaultTextStyle, level));
-
-    // Level 3: master text styles by category
-    const masterTextStyle =
-      category === 'title'
-        ? ctx.master.textStyles.titleStyle
-        : category === 'body'
-          ? ctx.master.textStyles.bodyStyle
-          : ctx.master.textStyles.otherStyle;
-    mergeParagraphProps(merged, findStyleAtLevel(masterTextStyle, level));
-
-    // Level 4: master placeholder lstStyle
-    if (masterInfo) {
-      const masterPh = findPlaceholderNode(ctx.master.placeholders, masterInfo, 'type');
-      if (masterPh) {
-        const lstStyle = getPlaceholderLstStyle(masterPh);
-        mergeParagraphProps(merged, findStyleAtLevel(lstStyle, level));
-      }
-    }
-
-    // Level 5: layout placeholder lstStyle
-    if (layoutPh) {
-      const lstStyle = getPlaceholderLstStyle(layoutPh);
-      mergeParagraphProps(merged, findStyleAtLevel(lstStyle, level));
-    }
-
-    // Level 6: shape lstStyle
-    mergeParagraphProps(merged, findStyleAtLevel(textBody.listStyle, level));
-
-    // Level 7: paragraph pPr
-    if (paragraph.properties) {
-      mergeParagraphProps(merged, paragraph.properties);
+    for (const source of paragraphStyleSources(textBody, placeholder, paragraph, ctx)) {
+      mergeParagraphProps(merged, source);
     }
 
     // ---- Apply paragraph styles ----

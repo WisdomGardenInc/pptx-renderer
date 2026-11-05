@@ -4,8 +4,9 @@ import { parseRels } from '../parser/RelParser';
 import { parseXml } from '../parser/XmlParser';
 import { editSlideElements } from '../writer/ElementWriter';
 import type { EditableElement } from './EditableElement';
-import { readSlideElements } from './readSlideElements';
-import { renderEditableText, type EditableTextOptions } from './renderEditableText';
+import { readTextLayout } from './textLayout';
+import { slideElementNodes } from './slideElementNodes';
+import { renderEditableTextFromNode, type EditableTextOptions } from './renderEditableText';
 
 export interface FitSlideTextOptions extends EditableTextOptions {
   readonly relationshipsXml?: string | null;
@@ -86,18 +87,30 @@ export async function fitSlideText<E extends EditableElement>(
     presentation.diagramDrawings,
   );
   materializeSlideNodes(presentation, prepared);
-  const projected = new Map(
-    readSlideElements(presentation, prepared).map((element) => [element.nodeId, element]),
+  const preparedNodes = new Map(
+    slideElementNodes(prepared, presentation).map((entry, index) => [
+      entry.node.id,
+      { entry, index },
+    ]),
   );
   const nodeIds = new Map(Array.from(part.ids, ([nodeId, id]) => [id, nodeId]));
   const sizes = new Map<string, { width: number; height: number }>();
   for (const element of candidates) {
     const nodeId = nodeIds.get(element.id);
-    if (!nodeId || projected.get(nodeId)?.autoFit !== 'resize') continue;
-    const handle = renderEditableText(
+    const match = nodeId ? preparedNodes.get(nodeId) : undefined;
+    const node = match?.entry.node;
+    if (
+      !nodeId ||
+      !match ||
+      node?.nodeType !== 'shape' ||
+      readTextLayout(node.textBody).autoFit !== 'resize'
+    )
+      continue;
+    const handle = renderEditableTextFromNode(
       presentation,
       prepared,
       { ...element, nodeId },
+      match,
       { ...options, editableTextAutoFit: true },
     );
     Object.assign(handle.element.style, {

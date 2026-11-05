@@ -23,6 +23,24 @@ function rotate(x: number, y: number, degrees: number): { x: number; y: number }
   };
 }
 
+export function mapSlideElementNode(original: SlideNode, parent?: GroupNodeData): SlideElementNode {
+  const node = { ...original, position: { ...original.position }, size: { ...original.size } };
+  if (parent) {
+    remapGroupChild(node, parent);
+    const center = rotate(
+      node.position.x + node.size.w / 2 - parent.size.w / 2,
+      node.position.y + node.size.h / 2 - parent.size.h / 2,
+      parent.rotation,
+    );
+    node.position = {
+      x: parent.position.x + parent.size.w / 2 + center.x - node.size.w / 2,
+      y: parent.position.y + parent.size.h / 2 + center.y - node.size.h / 2,
+    };
+    node.rotation += parent.rotation;
+  }
+  return { node, parent };
+}
+
 export function slideElementNodes(
   slide: SlideData,
   presentation?: PresentationData,
@@ -33,20 +51,7 @@ export function slideElementNodes(
   const master = masterPath ? presentation?.masters.get(masterPath) : undefined;
   const result: SlideElementNode[] = [];
   const visit = (original: SlideNode, parent?: GroupNodeData): void => {
-    const node = { ...original, position: { ...original.position }, size: { ...original.size } };
-    if (parent) {
-      remapGroupChild(node, parent);
-      const center = rotate(
-        node.position.x + node.size.w / 2 - parent.size.w / 2,
-        node.position.y + node.size.h / 2 - parent.size.h / 2,
-        parent.rotation,
-      );
-      node.position = {
-        x: parent.position.x + parent.size.w / 2 + center.x - node.size.w / 2,
-        y: parent.position.y + parent.size.h / 2 + center.y - node.size.h / 2,
-      };
-      node.rotation += parent.rotation;
-    }
+    const { node } = mapSlideElementNode(original, parent);
     result.push({ node, parent });
     if (node.nodeType !== 'group' || node.source.localName !== 'grpSp') return;
     for (const xml of node.children) {
@@ -65,6 +70,19 @@ export function slideElementNodes(
   };
   for (const node of slide.nodes) visit(node);
   return result;
+}
+
+export function findSlideElementNode(
+  slide: SlideData,
+  id: string,
+  presentation?: PresentationData,
+): { entry: SlideElementNode; index: number } | undefined {
+  const index = slide.nodes.findIndex((node) => node.id === id);
+  if (index >= 0 && !slide.nodes.slice(0, index).some((node) => node.nodeType === 'group'))
+    return { entry: { node: slide.nodes[index] }, index };
+  const entries = slideElementNodes(slide, presentation);
+  const nestedIndex = entries.findIndex(({ node }) => node.id === id);
+  return nestedIndex < 0 ? undefined : { entry: entries[nestedIndex], index: nestedIndex };
 }
 
 export function groupLocalElement(

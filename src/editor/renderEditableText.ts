@@ -1,14 +1,16 @@
 import type { PresentationData } from '../model/Presentation';
-import { materializeSlideNodes } from '../model/Presentation';
+import { materializeSlideNodes, resolveNodePlaceholderInheritance } from '../model/Presentation';
 import type { SlideData } from '../model/Slide';
-import { parseSlide } from '../model/Slide';
-import { parseXml } from '../parser/XmlParser';
+import { parseShapeNode } from '../model/nodes/ShapeNode';
+import { parseXml, SafeXmlNode } from '../parser/XmlParser';
+import { createRenderContext } from '../renderer/RenderContext';
 import { renderSlide } from '../renderer/SlideRenderer';
 import type { SlideHandle, SlideRendererOptions } from '../renderer/SlideRenderer';
-import { editSlideElements } from '../writer/ElementWriter';
+import { patchTextElement } from '../writer/ElementWriter';
 import type { EditableElement } from './EditableElement';
-import { slideElementNodes } from './slideElementNodes';
-import { readSlideElements } from './readSlideElements';
+import { findSlideElementNode, groupLocalElement, mapSlideElementNode } from './slideElementNodes';
+import type { SlideElementNode } from './slideElementNodes';
+import { projectSlideElement } from './readSlideElements';
 import { measureTextContentSize, measureEditableTextSize } from './measureEditableTextSize';
 import { readTextLayout } from './textLayout';
 import {
@@ -77,6 +79,30 @@ export function renderEditableText(
   initial: EditableElement,
   options: EditableTextOptions = {},
 ): EditableTextHandle {
+  return createEditableTextHandle(presentation, slide, initial, options);
+}
+
+/** Internal batch entry point: fitting already has each node and its draw order. */
+export function renderEditableTextFromNode(
+  presentation: PresentationData,
+  slide: SlideData,
+  initial: EditableElement,
+  match: { entry: SlideElementNode; index: number },
+  options: EditableTextOptions,
+): EditableTextHandle {
+  return createEditableTextHandle(presentation, slide, initial, options, match);
+}
+
+function createEditableTextHandle(
+  presentation: PresentationData,
+  slide: SlideData,
+  initial: EditableElement,
+  options: EditableTextOptions,
+  initialMatch?: { entry: SlideElementNode; index: number },
+): EditableTextHandle {
+  const background = parseXml(
+    '<p:bg xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:bgPr><a:noFill/></p:bgPr></p:bg>',
+  );
   const overlay = document.createElement('div');
   Object.assign(overlay.style, {
     position: 'absolute',
@@ -109,48 +135,36 @@ export function renderEditableText(
     if (!element.nodeId || (element.type !== 'text' && element.type !== 'shape')) {
       throw new Error('An existing PPTX text or shape node is required.');
     }
-    // ElementWriter mutates its tree. Parse an independent slide for every edit
-    // so temporary input cannot change other objects, shape order or saved XML.
-    const xml =
-      slide.root?.exists() && slide.root.element
-        ? new XMLSerializer().serializeToString(slide.root.element)
-        : slide.sourceXml;
-    if (!xml) throw new Error('Missing PPTX slide XML.');
-    const temporary = parseSlide(
-      parseXml(xml),
-      slide.index,
-      new Map(slide.rels),
-      slide.slidePath,
-      presentation.diagramDrawings,
+    // Clone only the target shape. Its native source stays detached from temporary
+    // edits; group coordinate mapping and the slide's theme context remain intact.
+    materializeSlideNodes(presentation, slide);
+    const match =
+      initialMatch?.entry.node.id === element.nodeId
+        ? initialMatch
+        : findSlideElementNode(slide, element.nodeId, presentation);
+    initialMatch = undefined;
+    if (!match || match.entry.node.nodeType !== 'shape' || !match.entry.node.source.exists())
+      throw new Error('Missing PPTX text shape.');
+    const ctx = createRenderContext(presentation, slide);
+    const previous = projectSlideElement(
+      presentation,
+      slide,
+      match.entry,
+      match.index,
+      { includeSourceXml: false },
+      ctx,
     );
-    materializeSlideNodes(presentation, temporary);
-    const previous = readSlideElements(presentation, temporary).map((item) =>
-      item.nodeId === element.nodeId ? { ...item, id: element.id } : item,
+    const source = match.entry.node.source.element!.cloneNode(true) as Element;
+    const { node: original, parent } = match.entry;
+    patchTextElement(
+      source,
+      parent ? groupLocalElement(element, original, parent) : element,
+      parent ? groupLocalElement(previous, original, parent) : previous,
     );
-    if (!previous.some((item) => item.nodeId === element.nodeId))
-      throw new Error('Missing PPTX text node.');
-    const edited = editSlideElements(
-      temporary,
-      previous.map((item) => (item.nodeId === element.nodeId ? element : item)),
-      previous,
-      null,
-      new Map(),
-    );
-    const updatedSlide = parseSlide(
-      parseXml(edited.xml),
-      slide.index,
-      new Map(slide.rels),
-      slide.slidePath,
-      presentation.diagramDrawings,
-    );
-    materializeSlideNodes(presentation, updatedSlide);
-    const node = slideElementNodes(updatedSlide, presentation).find(
-      (entry) => entry.node.id === element.nodeId,
-    )?.node;
-    if (node?.nodeType !== 'shape') throw new Error('Missing PPTX text shape.');
-    const background = parseXml(
-      '<p:bg xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:bgPr><a:noFill/></p:bgPr></p:bg>',
-    );
+    const localNode = parseShapeNode(new SafeXmlNode(source));
+    resolveNodePlaceholderInheritance(localNode, ctx.layout, ctx.master);
+    const node = mapSlideElementNode(localNode, parent).node;
+    if (node.nodeType !== 'shape') throw new Error('Missing PPTX text shape.');
     const current = input;
     const selection = current?.ownerDocument.getSelection();
     const focused = !!current && current.ownerDocument.activeElement === current;
@@ -170,7 +184,14 @@ export function renderEditableText(
     let native: HTMLElement | undefined;
     const next = renderSlide(
       presentation,
-      { ...temporary, nodes: [node], background, showMasterSp: false },
+      {
+        ...slide,
+        nodes: [node],
+        background,
+        showMasterSp: false,
+        nodesMaterialized: true,
+        placeholderInheritanceResolved: true,
+      },
       {
         ...options,
         mediaUrlCache: media,

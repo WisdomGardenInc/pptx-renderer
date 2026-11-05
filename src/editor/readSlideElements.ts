@@ -10,14 +10,18 @@ import type {
   EditableTextRun,
   EditableElement,
 } from './EditableElement';
-import { sourceElement, resolvePartPath } from './parts';
-import { slideElementNodes } from './slideElementNodes';
+import { sourceElement, indexSourceElements, resolvePartPath } from './parts';
+import { slideElementNodes, findSlideElementNode } from './slideElementNodes';
+import type { SlideElementNode } from './slideElementNodes';
 import { readTextLayout } from './textLayout';
 import { createRenderContext } from '../renderer/RenderContext';
 import type { RenderContext } from '../renderer/RenderContext';
 import { resolveColor } from '../renderer/StyleResolver';
 import { readShapeEditingStyle } from './shapeEditingStyle';
 import { readShapeFill } from './shapeFill';
+import { parseOoxmlBool } from '../parser/booleans';
+import { parseTextPercentage } from '../renderer/TextBodyProperties';
+import { paragraphStyleSources } from '../renderer/textStyleSources';
 
 function slideTheme(presentation: PresentationData, slide: SlideData): ThemeData | undefined {
   const layout = presentation.slideToLayout.get(slide.index);
@@ -65,8 +69,8 @@ function textRun(
   const color = colorSource ? resolveColor(colorSource, ctx) : undefined;
   return {
     text,
-    bold: property(sources, 'b') === '1',
-    italic: property(sources, 'i') === '1',
+    bold: parseOoxmlBool(property(sources, 'b')),
+    italic: parseOoxmlBool(property(sources, 'i')),
     underline: !['none', undefined].includes(property(sources, 'u')),
     fontSize: size ? Number(size) / 100 : 18,
     fontName: fontName(sources, 'latin', theme),
@@ -77,13 +81,10 @@ function textRun(
   };
 }
 
-function levelStyle(style: SafeXmlNode | undefined, level: string): SafeXmlNode | undefined {
-  return style?.child(level).exists() ? style.child(level) : style?.child('defPPr');
-}
-
-function placeholderProperties(node: SafeXmlNode): SafeXmlNode {
-  const shape = node.child('nvSpPr').child('nvPr').child('ph');
-  return shape.exists() ? shape : node.child('nvPicPr').child('nvPr').child('ph');
+function readSpacing(source: SafeXmlNode | undefined): { value: number | null; isPt: boolean } {
+  const points = source?.child('spcPts').numAttr('val');
+  if (points !== undefined) return { value: points / 100, isPt: true };
+  return { value: parseTextPercentage(source?.child('spcPct').attr('val')) ?? null, isPt: false };
 }
 
 function readBullet(
@@ -136,61 +137,22 @@ function paragraphs(
 ): EditableParagraph[] {
   const ctx = createRenderContext(presentation, slide);
   const fontRef = node.source.child('style').child('fontRef');
-  const layout = presentation.slideToLayout.get(slide.index);
-  const masterPath = layout && presentation.layoutToMaster.get(layout);
-  const master = masterPath ? presentation.masters.get(masterPath) : undefined;
-  const layoutData = layout ? presentation.layouts.get(layout) : undefined;
-  const layoutPlaceholder = node.placeholder
-    ? layoutData?.placeholders.find(
-        (entry) =>
-          (placeholderProperties(entry.node).numAttr('idx') ?? 0) === (node.placeholder?.idx ?? 0),
-      )?.node
-    : undefined;
-  const placeholderType = layoutPlaceholder
-    ? placeholderProperties(layoutPlaceholder).attr('type')
-    : node.placeholder?.type;
-  const masterType =
-    placeholderType === 'ctrTitle'
-      ? 'title'
-      : ['obj', 'subTitle', 'pic', 'chart', 'clipArt', 'dgm', 'media', 'tbl'].includes(
-            placeholderType ?? 'obj',
-          )
-        ? 'body'
-        : placeholderType;
-  const masterPlaceholder = node.placeholder
-    ? master?.placeholders.find(
-        (source) => (placeholderProperties(source).attr('type') ?? 'obj') === masterType,
-      )
-    : undefined;
-  const style =
-    master?.textStyles[
-      masterType === 'title'
-        ? 'titleStyle'
-        : node.placeholder && ['body', 'dt', 'ftr', 'sldNum'].includes(masterType ?? '')
-          ? 'bodyStyle'
-          : 'otherStyle'
-    ];
   return (node.textBody?.paragraphs ?? []).map((paragraph) => {
-    const props = paragraph.properties;
-    const level = `lvl${paragraph.level + 1}pPr`;
-    const sources = [
-      props,
-      levelStyle(node.textBody?.listStyle, level),
-      levelStyle(layoutPlaceholder?.child('txBody').child('lstStyle'), level),
-      levelStyle(masterPlaceholder?.child('txBody').child('lstStyle'), level),
-      levelStyle(style, level),
-      levelStyle(master?.defaultTextStyle, level),
-      levelStyle(presentation.defaultTextStyle, level),
-    ];
+    const sources = paragraphStyleSources(
+      node.textBody!,
+      node.placeholder,
+      paragraph,
+      ctx,
+    ).reverse();
     const defaults = sources.map((source) => source?.child('defRPr'));
     const align = property(sources, 'algn');
     const margin = property(sources, 'marL');
     const indent = property(sources, 'indent');
     const paragraphChild = (name: string) =>
       sources.map((source) => source?.child(name)).find((child) => child?.exists());
-    const spacing = paragraphChild('lnSpc');
-    const before = paragraphChild('spcBef')?.child('spcPts').numAttr('val');
-    const after = paragraphChild('spcAft')?.child('spcPts').numAttr('val');
+    const spacing = readSpacing(paragraphChild('lnSpc'));
+    const before = readSpacing(paragraphChild('spcBef'));
+    const after = readSpacing(paragraphChild('spcAft'));
     return {
       bullet: readBullet(sources, ctx),
       runs: paragraph.runs.map((run) =>
@@ -202,100 +164,149 @@ function paragraphs(
       indentLevel: paragraph.level,
       marL: margin != null ? Number(margin) / 9525 : null,
       indent: indent != null ? Number(indent) / 9525 : null,
-      lineSpacing:
-        spacing?.child('spcPts').numAttr('val') != null
-          ? spacing.child('spcPts').numAttr('val')! / 100
-          : spacing?.child('spcPct').numAttr('val') != null
-            ? spacing.child('spcPct').numAttr('val')! / 100000
-            : null,
-      lineSpacingIsPt: spacing?.child('spcPts').exists() ?? false,
-      spaceBefore: before != null ? before / 100 : null,
-      spaceAfter: after != null ? after / 100 : null,
+      lineSpacing: spacing.value,
+      lineSpacingIsPt: spacing.isPt,
+      spaceBefore: before.value,
+      spaceAfter: after.value,
+      ...(before.value != null && !before.isPt ? { spaceBeforeIsPt: false } : {}),
+      ...(after.value != null && !after.isPt ? { spaceAfterIsPt: false } : {}),
     };
   });
+}
+
+export interface ReadSlideElementsOptions {
+  /** Defaults to true. Skip copy snapshots when only reading editable values. */
+  readonly includeSourceXml?: boolean;
 }
 
 export function readSlideElements(
   presentation: PresentationData,
   slide: SlideData,
+  options: ReadSlideElementsOptions = {},
 ): EditableElement[] {
   const ctx = createRenderContext(presentation, slide);
-  return slideElementNodes(slide, presentation).map(({ node, parent }, index): EditableElement => {
-    const id = node.id;
-    const source = sourceElement(slide, id);
-    const lockNames = (
-      {
-        sp: ['nvSpPr', 'cNvSpPr', 'spLocks'],
-        pic: ['nvPicPr', 'cNvPicPr', 'picLocks'],
-        grpSp: ['nvGrpSpPr', 'cNvGrpSpPr', 'grpSpLocks'],
-        graphicFrame: ['nvGraphicFramePr', 'cNvGraphicFramePr', 'graphicFrameLocks'],
-      } as Record<string, string[]>
-    )[(node.source.exists() ? node.source.element?.localName : undefined) ?? ''];
-    const locks = lockNames
-      ? node.source.child(lockNames[0]).child(lockNames[1]).child(lockNames[2])
-      : null;
-    const base = {
-      id,
-      nodeId: node.id,
-      ...(parent ? { parentNodeId: parent.id } : {}),
-      locked: locks?.attr('noMove') === '1' && locks?.attr('noResize') === '1',
-      sourceXml: source ? new XMLSerializer().serializeToString(source) : undefined,
-      sourcePart: slide.slidePath,
-      relationships: Object.fromEntries(slide.rels),
-      x: node.position.x,
-      y: node.position.y,
-      width: node.size.w,
-      height: node.size.h,
-      rotation: node.rotation,
-      flipH: node.flipH,
-      flipV: node.flipV,
-      zOrder: index,
-      isPlaceholder: !!node.placeholder,
-      placeholderType: node.placeholder?.type,
+  const sources = options.includeSourceXml === false ? undefined : indexSourceElements(slide);
+  return slideElementNodes(slide, presentation).map((entry, index) =>
+    projectSlideElement(
+      presentation,
+      slide,
+      entry,
+      index,
+      options,
+      ctx,
+      sources?.get(entry.node.id),
+    ),
+  );
+}
+
+/** Read one node without projecting or serializing its siblings. */
+export function readSlideElement(
+  presentation: PresentationData,
+  slide: SlideData,
+  id: string,
+  options: ReadSlideElementsOptions = {},
+): EditableElement | undefined {
+  const match = findSlideElementNode(slide, id, presentation);
+  if (!match) return undefined;
+  const source = options.includeSourceXml === false ? undefined : sourceElement(slide, id);
+  return projectSlideElement(
+    presentation,
+    slide,
+    match.entry,
+    match.index,
+    options,
+    undefined,
+    source,
+  );
+}
+
+/** Internal projector shared by bulk reads and isolated text updates. */
+export function projectSlideElement(
+  presentation: PresentationData,
+  slide: SlideData,
+  { node, parent }: SlideElementNode,
+  index: number,
+  options: ReadSlideElementsOptions = {},
+  ctx = createRenderContext(presentation, slide),
+  source?: Element,
+): EditableElement {
+  const id = node.id;
+  const lockNames = (
+    {
+      sp: ['nvSpPr', 'cNvSpPr', 'spLocks'],
+      pic: ['nvPicPr', 'cNvPicPr', 'picLocks'],
+      grpSp: ['nvGrpSpPr', 'cNvGrpSpPr', 'grpSpLocks'],
+      graphicFrame: ['nvGraphicFramePr', 'cNvGraphicFramePr', 'graphicFrameLocks'],
+    } as Record<string, string[]>
+  )[(node.source.exists() ? node.source.element?.localName : undefined) ?? ''];
+  const locks = lockNames
+    ? node.source.child(lockNames[0]).child(lockNames[1]).child(lockNames[2])
+    : null;
+  const base = {
+    id,
+    nodeId: node.id,
+    ...(parent ? { parentNodeId: parent.id } : {}),
+    locked: parseOoxmlBool(locks?.attr('noMove')) && parseOoxmlBool(locks?.attr('noResize')),
+    ...(options.includeSourceXml !== false && source
+      ? { sourceXml: new XMLSerializer().serializeToString(source) }
+      : {}),
+    sourcePart: slide.slidePath,
+    relationships: Object.fromEntries(slide.rels),
+    x: node.position.x,
+    y: node.position.y,
+    width: node.size.w,
+    height: node.size.h,
+    rotation: node.rotation,
+    flipH: node.flipH,
+    flipV: node.flipV,
+    zOrder: index,
+    isPlaceholder: !!node.placeholder,
+    placeholderType: node.placeholder?.type,
+  };
+  if (node.nodeType === 'shape') {
+    const text = paragraphs(node, presentation, slide);
+    const body = node.textBody?.bodyProperties;
+    const layout = readTextLayout(node.textBody);
+    return {
+      ...base,
+      ...readShapeEditingStyle(node.source.child('spPr'), node.size.w, node.size.h),
+      type: parseOoxmlBool(node.source.child('nvSpPr').child('cNvSpPr').attr('txBox'))
+        ? 'text'
+        : 'shape',
+      paragraphs: text,
+      shapeType: node.presetGeometry ?? 'rect',
+      ...readShapeFill(node, ctx),
+      strokeColor: readColor(node.line?.child('solidFill'), ctx),
+      strokeWidth: (node.line?.numAttr('w') ?? 0) / 9525,
+      vAlign:
+        ({ t: 'top', ctr: 'middle', b: 'bottom' } as const)[body?.attr('anchor') as 't'] ?? 'top',
+      autoFit: layout.autoFit,
+      wrap: body?.attr('wrap') ?? node.textBody?.layoutBodyProperties?.attr('wrap'),
+      vert: body?.attr('vert'),
+      fontScale: layout.fontScale,
+      lineSpaceReduction: layout.lineSpaceReduction,
+      bodyPadding: {
+        l: (body?.numAttr('lIns') ?? 91440) / 9525,
+        r: (body?.numAttr('rIns') ?? 91440) / 9525,
+        t: (body?.numAttr('tIns') ?? 45720) / 9525,
+        b: (body?.numAttr('bIns') ?? 45720) / 9525,
+      },
     };
-    if (node.nodeType === 'shape') {
-      const text = paragraphs(node, presentation, slide);
-      const body = node.textBody?.bodyProperties;
-      const layout = readTextLayout(node.textBody);
-      return {
-        ...base,
-        ...readShapeEditingStyle(node.source.child('spPr'), node.size.w, node.size.h),
-        type: node.source.child('nvSpPr').child('cNvSpPr').attr('txBox') === '1' ? 'text' : 'shape',
-        paragraphs: text,
-        shapeType: node.presetGeometry ?? 'rect',
-        ...readShapeFill(node, ctx),
-        strokeColor: readColor(node.line?.child('solidFill'), ctx),
-        strokeWidth: (node.line?.numAttr('w') ?? 0) / 9525,
-        vAlign:
-          ({ t: 'top', ctr: 'middle', b: 'bottom' } as const)[body?.attr('anchor') as 't'] ?? 'top',
-        autoFit: layout.autoFit,
-        wrap: body?.attr('wrap') ?? node.textBody?.layoutBodyProperties?.attr('wrap'),
-        vert: body?.attr('vert'),
-        fontScale: layout.fontScale,
-        lineSpaceReduction: layout.lineSpaceReduction,
-        bodyPadding: {
-          l: (body?.numAttr('lIns') ?? 91440) / 9525,
-          r: (body?.numAttr('rIns') ?? 91440) / 9525,
-          t: (body?.numAttr('tIns') ?? 45720) / 9525,
-          b: (body?.numAttr('bIns') ?? 45720) / 9525,
-        },
-      };
-    }
-    if (node.nodeType === 'picture') {
-      const rel = slide.rels.get(node.blipEmbed ?? '');
-      const path = rel ? resolvePartPath(slide.slidePath, rel.target) : '';
-      return {
-        ...base,
-        type: 'image',
-        opacity: pictureOpacity(node.source.child('blipFill').child('blip')),
-        mediaPath: path,
-        picCrop: node.crop
-          ? { l: node.crop.left, r: node.crop.right, t: node.crop.top, b: node.crop.bottom }
-          : null,
-      };
-    }
-    return { ...base, type: node.nodeType };
-  });
+  }
+  if (node.nodeType === 'picture') {
+    const rel = slide.rels.get(node.blipEmbed ?? '');
+    const path = rel ? resolvePartPath(slide.slidePath, rel.target) : '';
+    return {
+      ...base,
+      type: 'image',
+      opacity: pictureOpacity(node.source.child('blipFill').child('blip')),
+      mediaPath: path,
+      picCrop: node.crop
+        ? { l: node.crop.left, r: node.crop.right, t: node.crop.top, b: node.crop.bottom }
+        : null,
+    };
+  }
+  return { ...base, type: node.nodeType };
 }
 
 export function imagePartPaths(slide: SlideData): string[] {

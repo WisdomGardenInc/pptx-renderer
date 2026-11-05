@@ -7,7 +7,7 @@ import type {
   EditableTextRun,
 } from '../editor/EditableElement';
 import { writeTextFitProperties } from '../editor/textLayout';
-import { resolvePartPath, sourceElement } from '../editor/parts';
+import { resolvePartPath, indexSourceElements } from '../editor/parts';
 import { groupLocalElement, slideElementNodes } from '../editor/slideElementNodes';
 import { A, P, R, SP_PR_ORDER, RPR_CHILD_ORDER, ensureChild } from './xmlEdit';
 import { copiedStyleBaseline, normalizeCopiedRelationships } from './copiedElement';
@@ -206,17 +206,21 @@ function applyParagraphProperties(
     ['spaceBefore', 'spcBef'],
     ['spaceAfter', 'spcAft'],
   ] as const) {
-    if (
-      previous &&
-      paragraph[key] === previous[key] &&
-      (key !== 'lineSpacing' || paragraph.lineSpacingIsPt === previous.lineSpacingIsPt)
-    )
-      continue;
+    const unitKey =
+      key === 'lineSpacing'
+        ? 'lineSpacingIsPt'
+        : key === 'spaceBefore'
+          ? 'spaceBeforeIsPt'
+          : 'spaceAfterIsPt';
+    // Existing hosts omit paragraph spacing units and continue to supply points.
+    const points = key === 'lineSpacing' ? !!paragraph[unitKey] : paragraph[unitKey] !== false;
+    const previousPoints =
+      key === 'lineSpacing' ? !!previous?.[unitKey] : previous?.[unitKey] !== false;
+    if (previous && paragraph[key] === previous[key] && points === previousPoints) continue;
     child(properties, name)?.remove();
     const value = paragraph[key];
     if (value != null) {
       const spacing = ensure(properties, name);
-      const points = key !== 'lineSpacing' || paragraph.lineSpacingIsPt;
       ensure(spacing, points ? 'spcPts' : 'spcPct').setAttribute(
         'val',
         String(Math.round(value * (points ? 100 : 100000))),
@@ -379,6 +383,17 @@ function patchStyle(
   }
 }
 
+/** Apply a text overlay draft to an isolated shape in its native coordinate space. */
+export function patchTextElement(
+  source: Element,
+  element: EditableElement,
+  previous: EditableElement,
+): void {
+  patchGeometry(source, element);
+  patchStyle(source, element, previous);
+  patchShapeEditingStyle(source, element, previous);
+}
+
 function newShape(document: Document, element: EditableElement, id: string): Element {
   const isImage = element.type === 'image';
   const source = isImage
@@ -476,9 +491,10 @@ export function editSlideElements(
   const previousById = new Map(previous.map((element) => [element.id, element]));
   const content = elements;
   const nodes = new Map(slideElementNodes(slide).map((entry) => [entry.node.id, entry]));
+  const sourceByNodeId = indexSourceElements(slide);
   const sources = new Map(
     previous.flatMap((element) => {
-      const source = element.nodeId ? sourceElement(slide, element.nodeId) : undefined;
+      const source = element.nodeId ? sourceByNodeId.get(element.nodeId) : undefined;
       return source ? [[element.id, source] as const] : [];
     }),
   );
@@ -503,8 +519,7 @@ export function editSlideElements(
       ),
     ) + 1;
   for (const old of previous) {
-    if (old.nodeId && !content.some((element) => element.id === old.id))
-      sourceElement(slide, old.nodeId)?.remove();
+    if (old.nodeId && !retainedIds.has(old.id)) sourceByNodeId.get(old.nodeId)?.remove();
   }
   for (const element of content) {
     const old = previousById.get(element.id);
