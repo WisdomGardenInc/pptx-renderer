@@ -11,7 +11,17 @@ export function rotationSwapsAxes(rotation: number): boolean {
   return Math.abs(normalized - 90) < 0.0001 || Math.abs(normalized - 270) < 0.0001;
 }
 
-export function remapGroupChild(child: BaseNodeData, group: GroupNodeData): void {
+type GroupGeometry = Pick<
+  GroupNodeData,
+  'size' | 'childOffset' | 'childExtent' | 'flipH' | 'flipV'
+>;
+type ChildGeometry = Pick<BaseNodeData, 'position' | 'size' | 'rotation' | 'flipH' | 'flipV'>;
+
+export function remapGroupGeometry(
+  child: ChildGeometry,
+  group: GroupGeometry,
+  propagateFlip: boolean,
+): void {
   const scaleX = group.childExtent.w > 0 ? group.size.w / group.childExtent.w : 1;
   const scaleY = group.childExtent.h > 0 ? group.size.h / group.childExtent.h : 1;
   const offset =
@@ -33,6 +43,21 @@ export function remapGroupChild(child: BaseNodeData, group: GroupNodeData): void
     };
     child.size = { w: size.w * scaleX, h: size.h * scaleY };
   }
+  if (group.flipH) {
+    child.position = { ...child.position, x: group.size.w - child.position.x - child.size.w };
+    if (propagateFlip) child.flipH = !child.flipH;
+  }
+  if (group.flipV) {
+    child.position = { ...child.position, y: group.size.h - child.position.y - child.size.h };
+    if (propagateFlip) child.flipV = !child.flipV;
+  }
+}
+
+export function remapGroupChild(child: BaseNodeData, group: GroupNodeData): void {
+  const scaleX = group.childExtent.w > 0 ? group.size.w / group.childExtent.w : 1;
+  const scaleY = group.childExtent.h > 0 ? group.size.h / group.childExtent.h : 1;
+  const swapsAxes = rotationSwapsAxes(child.rotation);
+  remapGroupGeometry(child, group, shouldPropagateGroupFlip(child));
   if (child.nodeType === 'shape') {
     const shape = child as ShapeNodeData;
     const box = shape.textBoxBounds;
@@ -41,13 +66,5 @@ export function remapGroupChild(child: BaseNodeData, group: GroupNodeData): void
       const sy = swapsAxes ? scaleX : scaleY;
       shape.textBoxBounds = { x: box.x * sx, y: box.y * sy, w: box.w * sx, h: box.h * sy };
     }
-  }
-  if (group.flipH) {
-    child.position = { ...child.position, x: group.size.w - child.position.x - child.size.w };
-    if (shouldPropagateGroupFlip(child)) child.flipH = !child.flipH;
-  }
-  if (group.flipV) {
-    child.position = { ...child.position, y: group.size.h - child.position.y - child.size.h };
-    if (shouldPropagateGroupFlip(child)) child.flipV = !child.flipV;
   }
 }

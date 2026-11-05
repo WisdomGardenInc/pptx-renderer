@@ -123,6 +123,8 @@ export type { SerializedSlidePart } from './writer/SlideWriter';
 
 // Framework-free editing: hosts adapt their own state to pixel/point values.
 export { editSlideElements } from './writer/ElementWriter';
+export { editGroups, restoreUngroupedGeometry } from './writer/groupOps';
+export type { GroupAction } from './writer/groupOps';
 export { readSlideElements, readSlideElement, imagePartPaths } from './editor/readSlideElements';
 export type { ReadSlideElementsOptions } from './editor/readSlideElements';
 export { applyTextLayout, readTextLayout } from './editor/textLayout';
