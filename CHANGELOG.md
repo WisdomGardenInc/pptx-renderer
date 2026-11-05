@@ -7,6 +7,21 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-05
+
+### Added
+
+- Group and ungroup slide objects while preserving their native geometry and inherited fills.
+- Read and edit shape fill opacity without flattening gradients, patterns, images, or theme fills.
+- Read individual editable elements and omit source XML snapshots for faster editor operations.
+- Preserve OOXML paragraph spacing units and boolean values in editor projections and saves.
+
+### Fixed
+
+- Preserve the rotation and flips of children in reflected groups, including after ungrouping.
+- Retain inherited group fills when ungrouping and when editing a child's fill opacity.
+- Resolve editable shape and text colors using the effective slide color map and style inheritance.
+
 ## [1.8.1] - 2026-10-15
 
 ### Fixed
