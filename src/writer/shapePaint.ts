@@ -64,18 +64,25 @@ export function setFillAlpha(
   let explicit = Array.from(properties.children).find((node) =>
     FILL_LOCAL_NAMES.includes(node.localName),
   );
-  if (!explicit && sourceFillXml) {
+  if ((!explicit || explicit.localName === 'grpFill') && sourceFillXml) {
     const inherited = parseXml(sourceFillXml);
     if (inherited.exists() && FILL_LOCAL_NAMES.includes(inherited.localName)) {
       // fillRef alpha alone is ignored by some Office consumers. Materialize the
       // effective theme paint locally while retaining its scheme colors and geometry.
-      explicit = properties.ownerDocument.importNode(inherited.element!, true) as Element;
-      ensureChild(properties, A, `a:${inherited.localName}`, SP_PR_ORDER).replaceWith(explicit);
+      const materialized = properties.ownerDocument.importNode(inherited.element!, true) as Element;
+      if (explicit) explicit.replaceWith(materialized);
+      else
+        ensureChild(properties, A, `a:${inherited.localName}`, SP_PR_ORDER).replaceWith(
+          materialized,
+        );
+      explicit = materialized;
     }
   }
   const reference = childByLocal(childByLocal(source, 'style') ?? source, 'fillRef');
   const fill = explicit ?? reference;
   if (!fill || fill.localName === 'noFill') return;
+  if (fill.localName === 'grpFill')
+    throw new Error('Cannot edit opacity without an inherited group fill.');
   if (!explicit && Number(reference?.getAttribute('idx') ?? 0) <= 0) return;
   if (fill.localName === 'blipFill') {
     const blip = childByLocal(fill, 'blip');

@@ -43,6 +43,7 @@ export function remapGroupGeometry(
     };
     child.size = { w: size.w * scaleX, h: size.h * scaleY };
   }
+  if (group.flipH !== group.flipV) child.rotation = -child.rotation;
   if (group.flipH) {
     child.position = { ...child.position, x: group.size.w - child.position.x - child.size.w };
     if (propagateFlip) child.flipH = !child.flipH;

@@ -3,6 +3,8 @@ import type { ShapeNodeData } from '../model/nodes/ShapeNode';
 import type { SafeXmlNode } from '../parser/XmlParser';
 import type { RenderContext } from '../renderer/RenderContext';
 import { resolveColorWithPlaceholder } from '../renderer/StyleResolver';
+import { inheritedGroupFill } from '../model/groupFill';
+import { SafeXmlNode as XmlNode } from '../parser/XmlParser';
 
 type FillStyle = Pick<EditableElement, 'fillKind' | 'fillColor' | 'fillAlpha' | 'sourceFillXml'>;
 
@@ -33,6 +35,15 @@ export function readShapeFill(node: ShapeNodeData, ctx: RenderContext): FillStyl
   let fill = node.fill;
   let placeholder: SafeXmlNode | undefined;
   let themed = false;
+  let groupFillXml: string | undefined;
+  if (fill?.localName === 'grpFill' && node.source.element) {
+    const inherited = inheritedGroupFill(node.source.element);
+    if (inherited) {
+      fill = new XmlNode(inherited);
+      groupFillXml = new XMLSerializer().serializeToString(inherited);
+      themed = true;
+    }
+  }
   if (!fill?.exists()) {
     const reference = node.source.child('style').child('fillRef');
     const index = reference.numAttr('idx') ?? 0;
@@ -56,6 +67,7 @@ export function readShapeFill(node: ShapeNodeData, ctx: RenderContext): FillStyl
     fillKind: themed ? 'theme' : (kind ?? 'none'),
     fillColor: null,
     ...(placeholder ? { sourceFillXml: boundThemeFill(fill, placeholder) } : {}),
+    ...(groupFillXml ? { sourceFillXml: groupFillXml } : {}),
   };
   if (kind === 'none') return { ...style, fillAlpha: 0 };
   if (kind === 'solid') {

@@ -1,5 +1,7 @@
 import type { EditableElement } from '../editor/EditableElement';
 import { remapGroupGeometry } from '../model/groupGeometry';
+import { inheritedGroupFill } from '../model/groupFill';
+import { parseOoxmlBool } from '../parser/booleans';
 
 export type GroupAction = 'group' | 'ungroup';
 
@@ -137,8 +139,8 @@ function ungroupNode(document: Document, id: string): string[] {
     size: { w: gw, h: gh },
     childOffset: { x: cx, y: cy },
     childExtent: { w: cw, h: ch },
-    flipH: gx.getAttribute('flipH') === '1',
-    flipV: gx.getAttribute('flipV') === '1',
+    flipH: parseOoxmlBool(gx.getAttribute('flipH') ?? undefined),
+    flipV: parseOoxmlBool(gx.getAttribute('flipV') ?? undefined),
   };
   const rotation = Number(gx.getAttribute('rot') ?? 0) / 60000;
   const radians = (rotation * Math.PI) / 180;
@@ -157,8 +159,8 @@ function ungroupNode(document: Document, id: string): string[] {
       position: { x, y },
       size: { w, h },
       rotation: angle,
-      flipH: xfrm.getAttribute('flipH') === '1',
-      flipV: xfrm.getAttribute('flipV') === '1',
+      flipH: parseOoxmlBool(xfrm.getAttribute('flipH') ?? undefined),
+      flipV: parseOoxmlBool(xfrm.getAttribute('flipV') ?? undefined),
     };
     remapGroupGeometry(geometry, groupGeometry, node.localName !== 'graphicFrame');
     const dx = geometry.position.x + geometry.size.w / 2 - gw / 2;
@@ -169,10 +171,17 @@ function ungroupNode(document: Document, id: string): string[] {
       oy + gh / 2 + dx * Math.sin(radians) + dy * Math.cos(radians) - geometry.size.h / 2;
     setVector(xfrm, 'off', 'x', 'y', nextX, nextY);
     setVector(xfrm, 'ext', 'cx', 'cy', geometry.size.w, geometry.size.h);
-    xfrm.setAttribute('rot', String(Math.round((angle + rotation) * 60000)));
+    xfrm.setAttribute('rot', String(Math.round((geometry.rotation + rotation) * 60000)));
     if (node.localName !== 'graphicFrame') {
       if (groupGeometry.flipH) xfrm.setAttribute('flipH', geometry.flipH ? '1' : '0');
       if (groupGeometry.flipV) xfrm.setAttribute('flipV', geometry.flipV ? '1' : '0');
+    }
+    const properties = child(node, node.localName === 'grpSp' ? 'grpSpPr' : 'spPr');
+    const groupFill = properties && child(properties, 'grpFill');
+    if (groupFill) {
+      const inherited = inheritedGroupFill(node);
+      const replacement = inherited?.cloneNode(true) ?? document.createElementNS(A, 'a:noFill');
+      groupFill.replaceWith(replacement);
     }
     parent.insertBefore(node, group);
   }

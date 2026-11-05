@@ -41,6 +41,61 @@ function fixture(xml: string) {
 }
 
 describe('group editing', () => {
+  it.each([
+    ['flipH="true"', -30, true, false],
+    ['flipV="1"', -30, false, true],
+    ['flipH="1" flipV="true"', 30, true, true],
+    ['', 30, false, false],
+  ])('preserves reflected rotated children for %s', (flips, angle, flipH, flipV) => {
+    const member = shape(2, 1000000).replace('<a:xfrm>', '<a:xfrm rot="1800000">');
+    const xml = slideXml(group(10, member).replace('rot="1800000" flipH="1"', flips));
+    const before = fixture(xml);
+    const prior = readSlideElements(before.presentation, before.slide).find(
+      (e) => e.nodeId === '2',
+    )!;
+    expect(prior.rotation).toBe(angle);
+    const result = fixture(editGroups(xml, 'ungroup', ['10']).xml);
+    const after = readSlideElements(result.presentation, result.slide).find(
+      (e) => e.nodeId === '2',
+    )!;
+    expect(after.rotation).toBe(angle);
+    expect(after.flipH).toBe(flipH);
+    expect(after.flipV).toBe(flipV);
+    expect(after.x).toBeCloseTo(prior.x, 3);
+    expect(after.y).toBeCloseTo(prior.y, 3);
+  });
+
+  it('materializes inherited group fills when ungrouping, including nested groups', () => {
+    const fill = '<a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>';
+    const member = shape(2, 1000000).replace('</p:spPr>', '<a:grpFill/></p:spPr>');
+    const nested = group(11, member).replace('</p:grpSpPr>', '<a:grpFill/></p:grpSpPr>');
+    const xml = slideXml(group(10, nested).replace('</p:grpSpPr>', `${fill}</p:grpSpPr>`));
+    const first = editGroups(xml, 'ungroup', ['10']);
+    const second = editGroups(first.xml, 'ungroup', ['11']);
+    const doc = new DOMParser().parseFromString(second.xml, 'application/xml');
+    expect(doc.getElementsByTagNameNS(A, 'grpFill')).toHaveLength(0);
+    expect(doc.getElementsByTagNameNS(A, 'srgbClr')[0].getAttribute('val')).toBe('FF0000');
+  });
+
+  it('edits an inherited group fill without changing siblings', () => {
+    const fill = '<a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>';
+    const member = (id: number) =>
+      shape(id, id * 1000000).replace('</p:spPr>', '<a:grpFill/></p:spPr>');
+    const xml = slideXml(
+      group(10, member(2) + member(3)).replace('</p:grpSpPr>', `${fill}</p:grpSpPr>`),
+    );
+    const { presentation, slide } = fixture(xml);
+    const previous = readSlideElements(presentation, slide);
+    const next = structuredClone(previous);
+    const target = next.find((e) => e.nodeId === '2')!;
+    expect(target.fillColor).toBe('#FF0000');
+    target.fillAlpha = 0.5;
+    const result = editSlideElements(slide, next, previous, null, new Map());
+    const after = fixture(result.xml);
+    const elements = readSlideElements(after.presentation, after.slide);
+    expect(elements.find((e) => e.nodeId === '2')?.fillAlpha).toBe(0.5);
+    expect(elements.find((e) => e.nodeId === '3')?.fillAlpha).toBe(1);
+  });
   it('groups siblings in order and restores them on ungroup', () => {
     const xml = slideXml(shape(2, 1000000) + shape(3, 3000000));
     const grouped = editGroups(xml, 'group', ['2', '3']);

@@ -90,7 +90,8 @@ export function groupLocalElement(
   node: SlideNode,
   parent: GroupNodeData,
 ): EditableElement {
-  const rotation = (element.rotation ?? 0) - parent.rotation;
+  const mappedRotation = (element.rotation ?? 0) - parent.rotation;
+  const rotation = parent.flipH !== parent.flipV ? -mappedRotation : mappedRotation;
   const center = rotate(
     element.x + element.width / 2 - parent.position.x - parent.size.w / 2,
     element.y + element.height / 2 - parent.position.y - parent.size.h / 2,
