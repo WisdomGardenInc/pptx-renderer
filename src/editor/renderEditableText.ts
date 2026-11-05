@@ -304,7 +304,7 @@ function createEditableTextHandle(
         resizeContentChanged = true;
       const shouldFitContent = resizeToContent && (resizeContentChanged || extraction.fitToContent);
       let size = { width: element.width, height: element.height };
-      if (!fixedFrame && root.isConnected) {
+      if (!fixedFrame && root.isConnected && (!resizeToContent || shouldFitContent)) {
         size = shouldFitContent
           ? measureTextContentSize(root, renderedSize, renderedTextSize, wrapsText)
           : measureEditableTextSize(root, element, renderedSize, renderedTextSize, fitContent);

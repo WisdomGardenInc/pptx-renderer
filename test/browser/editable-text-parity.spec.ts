@@ -7,7 +7,7 @@ for (const [mode, fit] of [
 ] as const) {
   for (const anchor of ['t', 'ctr', 'b']) {
     for (const wrap of ['square', 'none']) {
-      test(`opening text retains every glyph position (${mode}, ${anchor}, ${wrap})`, async ({
+      test(`opening text ${mode === 'resize' ? 'remains unscaled' : 'retains every glyph position'} (${mode}, ${anchor}, ${wrap})`, async ({
         page,
       }) => {
         await page.route('https://example.com/background.png', (route) => route.abort());
@@ -89,14 +89,20 @@ for (const [mode, fit] of [
           },
           { fit, anchor, wrap },
         );
-        expect(result.editingScale).toBe(result.previewScale);
         expect(result.width).toBe(result.originalWidth);
         expect(result.height).toBe(48);
         expect(result.editing.length).toBe(result.preview.length);
-        const differences = result.editing.flatMap((position, index) =>
-          position.map((value, axis) => Math.abs(value - result.preview[index][axis])),
-        );
-        expect(Math.max(...differences)).toBeLessThanOrEqual(0.15);
+        if (mode === 'resize') {
+          // spAutoFit grows during editing; the fixed preview may shrink to its authored frame.
+          expect(Number(result.editingScale ?? 1)).toBe(1);
+          expect(Number(result.previewScale)).toBeLessThan(1);
+        } else {
+          expect(result.editingScale).toBe(result.previewScale);
+          const differences = result.editing.flatMap((position, index) =>
+            position.map((value, axis) => Math.abs(value - result.preview[index][axis])),
+          );
+          expect(Math.max(...differences)).toBeLessThanOrEqual(0.15);
+        }
       });
     }
   }
